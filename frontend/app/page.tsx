@@ -1,6 +1,12 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { useState } from 'react'
+
+const MumbaiMap = dynamic(() => import('@/components/mumbai-map'), {
+  ssr: false,
+  loading: () => <div style={{ height: '100%' }} />,
+})
 
 const ambulances = [
   ['AMB-001', 'Andheri West', 'K/W Ward', '6 min', 'ALS', 'Available'],
@@ -29,7 +35,7 @@ export default function Page() {
         <button onClick={() => { setUpdated(true); setTimeout(() => setUpdated(false), 2200) }}>{updated ? 'Updated' : 'Recalculate'}</button>
       </section>
       <section className="content-grid">
-        <div className="map-card"><div className="map-heading"><div><p className="eyebrow">Mumbai operations map</p><h2>Demand by administrative ward</h2></div><span className="map-date">Live model view</span></div><div className="map"><div className="coastline" /><div className="ward ward-a">A</div><div className="ward ward-b">B</div><div className="ward ward-c">C</div><div className="ward ward-d">D</div><div className="ward ward-e">E</div><div className="ward ward-f">F/N</div><div className="ward ward-g">G/S</div><div className="ward ward-h">H/W</div><div className="ward ward-k">K/W</div><div className="ward ward-l">L</div><div className="marker ambulance">+</div><div className="marker hospital">H</div><div className="marker recommended">★</div><div className="map-label label-north">Mumbai</div><div className="map-label label-south">Worli · Parel</div><div className="legend"><span><i className="legend-dot high" /> High demand</span><span><i className="legend-dot medium" /> Medium</span><span><i className="legend-dot low" /> Low</span></div></div></div>
+        <div className="map-card"><div className="map-heading"><div><p className="eyebrow">Mumbai operations map</p><h2>Demand by administrative ward</h2></div><span className="map-date">Live model view</span></div><div className="map"><MumbaiMap /><div className="legend"><span><i className="legend-dot high" /> High demand</span><span><i className="legend-dot medium" /> Medium</span><span><i className="legend-dot low" /> Low</span></div></div></div>
         <aside className="stats-column"><div className="stat-card"><span>Current average response time</span><strong>14.2 <small>min</small></strong><em>Baseline</em></div><div className="stat-card optimized"><span>Optimized average response time</span><strong>9.1 <small>min</small></strong><em>↓ 36% faster</em></div><div className="comparison"><p>Optimization impact</p><div><span>Reachable within 10 min</span><strong>48% <b>→</b> 71%</strong></div><div><span>Worst high-risk ward</span><strong>18 min <b>→</b> 8 min</strong></div></div></aside>
       </section>
       <section className="fleet-section"><div className="section-heading"><div><p className="eyebrow">Fleet overview</p><h2>Ambulance fleet</h2></div><span>{fleet} units modeled · {day}</span></div><div className="table-wrap"><table><thead><tr>{['Ambulance ID','Current zone','Recommended position','ETA / response','Type','Status'].map((head) => <th key={head}>{head}</th>)}</tr></thead><tbody>{ambulances.map((row) => <tr key={row[0]}>{row.map((cell, index) => <td key={cell}>{index === 0 ? <strong>{cell}</strong> : index === 5 ? <span className={`badge ${cell.toLowerCase().replace(' ', '-')}`}>{cell}</span> : cell}</td>)}</tr>)}</tbody></table></div></section>
