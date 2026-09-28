@@ -6,13 +6,15 @@ Run from inside the backend/ folder:
 
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import List
 
 import geopandas as gpd
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
-from services.optimizer import optimize_ambulance_positions
+from services.optimizer import filter_candidates_by_radius, optimize_ambulance_positions
 from services.weighting import calculate_weighted_scores
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
@@ -26,6 +28,10 @@ RISK_HOUR_COL = "hour"
 RISK_SCORE_COL = "risk_score"
 
 data: dict = {}
+
+# In-memory store for the currently registered hospital. Empty until a
+# successful POST /hospital/register; holds a single registration's fields.
+registered_hospital: dict = {}
 
 
 def load_data() -> None:
@@ -81,26 +87,66 @@ def _clean(value):
     return value.item() if hasattr(value, "item") else value
 
 
+class Ambulance(BaseModel):
+    id: str
+    type: str
+
+
+class HospitalRegistration(BaseModel):
+    hospital_name: str
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+    operating_radius_km: float = Field(gt=0)
+    ambulances: List[Ambulance] = Field(min_length=1)
+
+
 @app.get("/health")
 def health():
     return {"data_loaded": "error" not in data, "error": data.get("error")}
 
 
+@app.post("/hospital/register")
+def register_hospital(registration: HospitalRegistration):
+    registered_hospital.clear()
+    registered_hospital.update(registration.model_dump())
+    return {"status": "registered", "fleet_size": len(registration.ambulances)}
+
+
 @app.get("/optimize")
 def optimize(
     hour: int = Query(..., ge=0, le=23, description="Hour of day (0-23)"),
-    num_ambulances: int = Query(..., ge=1, description="Number of ambulances to place"),
     min_spacing_km: float = Query(2.0, ge=0, description="Minimum distance between ambulances"),
 ):
     if "error" in data:
         raise HTTPException(status_code=503, detail=data["error"])
 
-    candidates = data["candidates"]
-    if num_ambulances > len(candidates):
+    if not registered_hospital:
         raise HTTPException(
             status_code=400,
-            detail=f"num_ambulances ({num_ambulances}) is greater than the number of "
-            f"available candidates ({len(candidates)})",
+            detail="No hospital registered. POST to /hospital/register first.",
+        )
+
+    num_ambulances = len(registered_hospital["ambulances"])
+    if num_ambulances < 1:
+        raise HTTPException(status_code=400, detail="Registered hospital has no ambulances")
+
+    candidates = data["candidates"]
+    nearby = filter_candidates_by_radius(
+        candidates,
+        registered_hospital["lat"],
+        registered_hospital["lng"],
+        registered_hospital["operating_radius_km"],
+    )
+    if len(nearby) < num_ambulances:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Only {len(nearby)} candidate position(s) found within "
+                f"{registered_hospital['operating_radius_km']} km of "
+                f"{registered_hospital['hospital_name']}, but the registered fleet "
+                f"needs {num_ambulances} position(s). Register a larger "
+                "operating_radius_km or a smaller fleet."
+            ),
         )
 
     risk = data["risk_scores"]
@@ -109,7 +155,7 @@ def optimize(
         raise HTTPException(status_code=404, detail=f"No risk scores found for hour {hour}")
     zone_scores = dict(zip(hour_rows[RISK_WARD_COL], hour_rows[RISK_SCORE_COL]))
 
-    scored = calculate_weighted_scores(candidates, data["travel_times"], zone_scores)
+    scored = calculate_weighted_scores(nearby, data["travel_times"], zone_scores)
 
     try:
         result = optimize_ambulance_positions(scored, num_ambulances, min_spacing_km)
