@@ -169,6 +169,9 @@ def optimize(
             "name": _clean(row.get("name")),
             "ward_code": _clean(row.get("ward_code")),
             "weighted_score": float(row["weighted_score"]),
+            # The candidates file is CRS84, so x is longitude and y is latitude.
+            "lat": float(row.geometry.y),
+            "lng": float(row.geometry.x),
         }
         for _, row in chosen.iterrows()
     ]
