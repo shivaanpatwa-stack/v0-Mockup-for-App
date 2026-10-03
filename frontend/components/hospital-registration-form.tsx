@@ -6,13 +6,13 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
 import type { LatLng, ViewTarget } from './location-picker-map'
+import { API_URL, readErrorMessage } from '@/lib/api'
 
 const LocationPickerMap = dynamic(() => import('./location-picker-map'), {
   ssr: false,
   loading: () => <div className="reg-map-loading">Loading map…</div>,
 })
 
-const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000').replace(/\/$/, '')
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search'
 // Biases (does not restrict) geocoding results towards Mumbai: left,top,right,bottom.
 const MUMBAI_VIEWBOX = '72.75,19.30,73.05,18.85'
@@ -26,20 +26,6 @@ type AmbulanceRow = { key: number; id: string; type: AmbulanceType }
 
 // Nominatim's boundingbox is [south, north, west, east] as strings.
 type NominatimResult = { boundingbox: [string, string, string, string] }
-
-async function readErrorMessage(res: Response): Promise<string> {
-  try {
-    const { detail } = await res.json()
-    if (typeof detail === 'string') return detail
-    if (Array.isArray(detail)) {
-      // FastAPI validation errors: [{ loc: ['body', 'field'], msg }, ...]
-      return detail.map((d) => `${(d.loc ?? []).slice(1).join('.')}: ${d.msg}`).join('; ')
-    }
-  } catch {
-    // Body wasn't JSON; fall through to the generic message.
-  }
-  return `Registration failed (HTTP ${res.status}).`
-}
 
 export default function HospitalRegistrationForm() {
   const router = useRouter()
@@ -159,7 +145,7 @@ export default function HospitalRegistrationForm() {
         }),
       })
       if (!res.ok) {
-        setSubmitError(await readErrorMessage(res))
+        setSubmitError(await readErrorMessage(res, 'Registration failed'))
         return
       }
       const body = await res.json()
