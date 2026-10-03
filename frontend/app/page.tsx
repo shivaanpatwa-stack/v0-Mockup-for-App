@@ -1,6 +1,7 @@
 'use client'
 
 import dynamic from 'next/dynamic'
+import Link from 'next/link'
 import { useState } from 'react'
 
 const MumbaiMap = dynamic(() => import('@/components/mumbai-map'), {
@@ -26,7 +27,7 @@ export default function Page() {
     <main className="dashboard-shell">
       <header className="topbar">
         <div><p className="eyebrow">Fleet intelligence</p><h1>Ambulance Response Optimization Platform</h1></div>
-        <div className="hospital"><span className="status-dot" /> Hospital A <span>— Parel</span></div>
+        <div className="topbar-actions"><div className="hospital"><span className="status-dot" /> Hospital A <span>— Parel</span></div><Link href="/register" className="reg-link">Register hospital</Link></div>
       </header>
       <section className="controls" aria-label="Model controls">
         <label>Day<select value={day} onChange={(e) => setDay(e.target.value)}>{['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map((item) => <option key={item}>{item}</option>)}</select></label>

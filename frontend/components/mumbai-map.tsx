@@ -3,14 +3,9 @@
 import { CircleMarker, MapContainer, TileLayer, Tooltip } from 'react-leaflet'
 import type { LatLngBoundsExpression, LatLngExpression } from 'leaflet'
 import WardRiskLayer from './ward-risk-layer'
+import { MUMBAI_CENTER, TILE_ATTRIBUTION, TILE_URL } from '@/lib/map-tiles'
 import 'leaflet/dist/leaflet.css'
 
-const CARTO_API_KEY = process.env.NEXT_PUBLIC_CARTO_API_KEY?.trim()
-const TILE_URL = `https://{s}.basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}{r}.png${
-  CARTO_API_KEY ? `?key=${CARTO_API_KEY}` : ''
-}`
-
-const MUMBAI_CENTER: LatLngExpression = [19.076, 72.8777]
 const MUMBAI_BOUNDS: LatLngBoundsExpression = [
   [18.85, 72.75],
   [19.3, 73.05],
@@ -35,7 +30,7 @@ export default function MumbaiMap() {
     >
       <TileLayer
         url={TILE_URL}
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+        attribution={TILE_ATTRIBUTION}
         subdomains="abcd"
       />
       <WardRiskLayer hour={21} />
