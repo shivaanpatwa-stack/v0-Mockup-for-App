@@ -12,8 +12,9 @@ import geopandas as gpd
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
+from services.assignment import CAPABILITY, assign_ambulances_to_positions
 from services.optimizer import filter_candidates_by_radius, optimize_ambulance_positions
 from services.weighting import calculate_weighted_scores
 
@@ -90,6 +91,14 @@ def _clean(value):
 class Ambulance(BaseModel):
     id: str
     type: str
+
+    @field_validator("type")
+    @classmethod
+    def _known_type(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if normalized not in CAPABILITY:
+            raise ValueError(f"type must be one of: {', '.join(CAPABILITY)}")
+        return normalized
 
 
 class HospitalRegistration(BaseModel):
@@ -172,4 +181,11 @@ def optimize(
         }
         for _, row in chosen.iterrows()
     ]
+
+    try:
+        result["assignments"] = assign_ambulances_to_positions(
+            registered_hospital["ambulances"], pd.DataFrame(result["details"])
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     return result
