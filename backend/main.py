@@ -10,10 +10,16 @@ from typing import List
 
 import geopandas as gpd
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
+# Imported as a module: main.py already has a pydantic class named Ambulance.
+import models
+from database import get_db
 from services.assignment import CAPABILITY, assign_ambulances_to_positions
 from services.optimizer import filter_candidates_by_radius, optimize_ambulance_positions
 from services.weighting import calculate_weighted_scores
@@ -112,6 +118,17 @@ class HospitalRegistration(BaseModel):
 @app.get("/health")
 def health():
     return {"data_loaded": "error" not in data, "error": data.get("error")}
+
+
+@app.get("/health/db")
+def health_db(db: Session = Depends(get_db)):
+    try:
+        hospital_count = db.scalar(select(func.count()).select_from(models.Hospital))
+    except SQLAlchemyError as exc:
+        # Only the driver's first line: enough to diagnose, never the connection URL.
+        reason = str(getattr(exc, "orig", exc)).strip().splitlines()[0]
+        raise HTTPException(status_code=503, detail=f"Database unreachable: {reason}")
+    return {"database": "ok", "hospitals": hospital_count}
 
 
 @app.post("/hospital/register")
