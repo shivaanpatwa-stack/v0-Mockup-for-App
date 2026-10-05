@@ -30,7 +30,7 @@ def assign_ambulances_to_positions(
     if n_ambulances == 0:
         return []
 
-    required = {"candidate_id", "name", "ward_code", "weighted_score"}
+    required = {"candidate_id", "name", "ward_code", "weighted_score", "lat", "lng"}
     missing = required - set(chosen_positions_df.columns)
     if missing:
         raise ValueError(f"chosen_positions_df is missing columns: {', '.join(sorted(missing))}")
@@ -65,6 +65,8 @@ def assign_ambulances_to_positions(
                 "name": None if pd.isna(name) else name,
                 "ward_code": None if pd.isna(ward_code) else ward_code,
                 "weighted_score": float(position["weighted_score"]),
+                "lat": float(position["lat"]),
+                "lng": float(position["lng"]),
             }
         )
     return assignments

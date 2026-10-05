@@ -9,10 +9,22 @@ export type OptimizedPosition = {
   lng: number
 }
 
+export type AmbulanceAssignment = {
+  ambulance_id: string
+  type: string
+  candidate_id: string
+  name: string | null
+  ward_code: string | null
+  weighted_score: number
+  lat: number
+  lng: number
+}
+
 export type OptimizeResult = {
   chosen_candidates: string[]
   total_weighted_score: number
   details: OptimizedPosition[]
+  assignments: AmbulanceAssignment[]
 }
 
 export async function readErrorMessage(res: Response, fallback: string): Promise<string> {
