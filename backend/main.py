@@ -14,7 +14,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 # Imported as a module: main.py already has a pydantic class named Ambulance.
@@ -35,10 +35,6 @@ RISK_HOUR_COL = "hour"
 RISK_SCORE_COL = "risk_score"
 
 data: dict = {}
-
-# In-memory store for the currently registered hospital. Empty until a
-# successful POST /hospital/register; holds a single registration's fields.
-registered_hospital: dict = {}
 
 
 def load_data() -> None:
@@ -94,6 +90,12 @@ def _clean(value):
     return value.item() if hasattr(value, "item") else value
 
 
+def _db_unavailable(exc: SQLAlchemyError) -> HTTPException:
+    # Only the driver's first line: enough to diagnose, never the connection URL.
+    reason = str(getattr(exc, "orig", exc)).strip().splitlines()[0]
+    return HTTPException(status_code=503, detail=f"Database unreachable: {reason}")
+
+
 class Ambulance(BaseModel):
     id: str
     type: str
@@ -125,51 +127,107 @@ def health_db(db: Session = Depends(get_db)):
     try:
         hospital_count = db.scalar(select(func.count()).select_from(models.Hospital))
     except SQLAlchemyError as exc:
-        # Only the driver's first line: enough to diagnose, never the connection URL.
-        reason = str(getattr(exc, "orig", exc)).strip().splitlines()[0]
-        raise HTTPException(status_code=503, detail=f"Database unreachable: {reason}")
+        raise _db_unavailable(exc)
     return {"database": "ok", "hospitals": hospital_count}
 
 
 @app.post("/hospital/register")
-def register_hospital(registration: HospitalRegistration):
-    registered_hospital.clear()
-    registered_hospital.update(registration.model_dump())
-    return {"status": "registered", "fleet_size": len(registration.ambulances)}
+def register_hospital(registration: HospitalRegistration, db: Session = Depends(get_db)):
+    hospital = models.Hospital(
+        name=registration.hospital_name,
+        lat=registration.lat,
+        lng=registration.lng,
+        operating_radius_km=registration.operating_radius_km,
+    )
+    # current_status defaults to available in the model.
+    hospital.ambulances = [
+        models.Ambulance(call_sign=a.id, type=models.AmbulanceType(a.type))
+        for a in registration.ambulances
+    ]
+    try:
+        db.add(hospital)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        # ambulances has UNIQUE (hospital_id, call_sign).
+        raise HTTPException(status_code=409, detail="Each ambulance ID must be unique within the hospital")
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise _db_unavailable(exc)
+    return {
+        "status": "registered",
+        "hospital_id": hospital.hospital_id,
+        "fleet_size": len(registration.ambulances),
+    }
+
+
+@app.get("/demand-scores")
+def demand_scores(hour: int = Query(..., ge=0, le=23, description="Hour of day (0-23)")):
+    if "error" in data:
+        raise HTTPException(status_code=503, detail=data["error"])
+
+    risk = data["risk_scores"]
+    hour_rows = risk[risk[RISK_HOUR_COL] == hour]
+    if hour_rows.empty:
+        raise HTTPException(status_code=404, detail=f"No risk scores found for hour {hour}")
+
+    return [
+        {"ward_code": _clean(ward), "risk_score": float(score)}
+        for ward, score in zip(hour_rows[RISK_WARD_COL], hour_rows[RISK_SCORE_COL])
+    ]
 
 
 @app.get("/optimize")
 def optimize(
+    hospital_id: int = Query(..., description="ID returned by POST /hospital/register"),
     hour: int = Query(..., ge=0, le=23, description="Hour of day (0-23)"),
     min_spacing_km: float = Query(2.0, ge=0, description="Minimum distance between ambulances"),
+    db: Session = Depends(get_db),
 ):
     if "error" in data:
         raise HTTPException(status_code=503, detail=data["error"])
 
-    if not registered_hospital:
+    try:
+        hospital = db.get(models.Hospital, hospital_id)
+        fleet = (
+            db.scalars(
+                select(models.Ambulance)
+                .where(models.Ambulance.hospital_id == hospital_id)
+                .order_by(models.Ambulance.ambulance_id)
+            ).all()
+            if hospital
+            else []
+        )
+    except SQLAlchemyError as exc:
+        raise _db_unavailable(exc)
+
+    if hospital is None:
         raise HTTPException(
-            status_code=400,
-            detail="No hospital registered. POST to /hospital/register first.",
+            status_code=404,
+            detail=f"No hospital with hospital_id {hospital_id}. POST to /hospital/register first.",
         )
 
-    num_ambulances = len(registered_hospital["ambulances"])
+    # Same shape the old in-memory registration had: {"id": ..., "type": "ALS" | "BLS"}.
+    ambulances = [{"id": a.call_sign, "type": a.type.value} for a in fleet]
+
+    num_ambulances = len(ambulances)
     if num_ambulances < 1:
         raise HTTPException(status_code=400, detail="Registered hospital has no ambulances")
 
     candidates = data["candidates"]
     nearby = filter_candidates_by_radius(
         candidates,
-        registered_hospital["lat"],
-        registered_hospital["lng"],
-        registered_hospital["operating_radius_km"],
+        hospital.lat,
+        hospital.lng,
+        hospital.operating_radius_km,
     )
     if len(nearby) < num_ambulances:
         raise HTTPException(
             status_code=400,
             detail=(
                 f"Only {len(nearby)} candidate position(s) found within "
-                f"{registered_hospital['operating_radius_km']} km of "
-                f"{registered_hospital['hospital_name']}, but the registered fleet "
+                f"{hospital.operating_radius_km} km of "
+                f"{hospital.name}, but the registered fleet "
                 f"needs {num_ambulances} position(s). Register a larger "
                 "operating_radius_km or a smaller fleet."
             ),
@@ -204,7 +262,7 @@ def optimize(
 
     try:
         result["assignments"] = assign_ambulances_to_positions(
-            registered_hospital["ambulances"], pd.DataFrame(result["details"])
+            ambulances, pd.DataFrame(result["details"])
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
