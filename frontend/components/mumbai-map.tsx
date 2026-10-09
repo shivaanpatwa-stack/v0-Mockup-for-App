@@ -14,7 +14,7 @@ const MUMBAI_BOUNDS: LatLngBoundsExpression = [
 
 const ASSIGNMENT_COLOR = '#2da44e'
 
-export default function MumbaiMap({ assignments }: { assignments?: AmbulanceAssignment[] }) {
+export default function MumbaiMap({ hour, assignments }: { hour: number; assignments?: AmbulanceAssignment[] }) {
   return (
     <MapContainer
       center={MUMBAI_CENTER}
@@ -30,7 +30,7 @@ export default function MumbaiMap({ assignments }: { assignments?: AmbulanceAssi
         attribution={TILE_ATTRIBUTION}
         subdomains="abcd"
       />
-      <WardRiskLayer hour={21} />
+      <WardRiskLayer hour={hour} />
       {assignments?.map((a) => (
         <CircleMarker
           key={a.ambulance_id}

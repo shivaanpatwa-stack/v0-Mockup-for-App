@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
 import type { LatLng, ViewTarget } from './location-picker-map'
-import { API_URL, readErrorMessage } from '@/lib/api'
+import { API_URL, ApiError, registerHospital, saveHospitalId } from '@/lib/api'
 
 const LocationPickerMap = dynamic(() => import('./location-picker-map'), {
   ssr: false,
@@ -133,25 +133,20 @@ export default function HospitalRegistrationForm() {
     setSubmitting(true)
     setSubmitError(null)
     try {
-      const res = await fetch(`${API_URL}/hospital/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          hospital_name: name.trim(),
-          lat: location.lat,
-          lng: location.lng,
-          operating_radius_km: radiusKm,
-          ambulances: ambulances.map((a) => ({ id: a.id.trim(), type: a.type })),
-        }),
+      const body = await registerHospital({
+        hospital_name: name.trim(),
+        lat: location.lat,
+        lng: location.lng,
+        operating_radius_km: radiusKm,
+        ambulances: ambulances.map((a) => ({ id: a.id.trim(), type: a.type })),
       })
-      if (!res.ok) {
-        setSubmitError(await readErrorMessage(res, 'Registration failed'))
-        return
-      }
-      const body = await res.json()
-      setFleetSize(typeof body.fleet_size === 'number' ? body.fleet_size : ambulances.length)
-    } catch {
-      setSubmitError(`Couldn't reach the server at ${API_URL}. Is the backend running?`)
+      // The dashboard reads this to know which hospital to optimize.
+      saveHospitalId(body.hospital_id)
+      setFleetSize(body.fleet_size)
+    } catch (err) {
+      setSubmitError(
+        err instanceof ApiError ? err.message : `Couldn't reach the server at ${API_URL}. Is the backend running?`,
+      )
     } finally {
       setSubmitting(false)
     }

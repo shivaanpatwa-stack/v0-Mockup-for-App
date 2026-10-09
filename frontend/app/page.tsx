@@ -2,8 +2,8 @@
 
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
-import { useState } from 'react'
-import { API_URL, readErrorMessage, type OptimizeResult } from '@/lib/api'
+import { useEffect, useState } from 'react'
+import { API_URL, clearHospitalId, loadHospitalId, readErrorMessage, type OptimizeResult } from '@/lib/api'
 
 const MumbaiMap = dynamic(() => import('@/components/mumbai-map'), {
   ssr: false,
@@ -59,13 +59,30 @@ export default function Page() {
   const [previousRun, setPreviousRun] = useState<Run | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // undefined until browser storage has been read (it isn't available during server rendering).
+  const [hospitalId, setHospitalId] = useState<number | null | undefined>(undefined)
+
+  useEffect(() => {
+    setHospitalId(loadHospitalId())
+  }, [])
 
   async function recalculate() {
+    if (!hospitalId) return
     setLoading(true)
     setError(null)
     try {
-      const params = new URLSearchParams({ hour: String(hour), min_spacing_km: MIN_SPACING_KM.toFixed(1) })
+      const params = new URLSearchParams({
+        hospital_id: String(hospitalId),
+        hour: String(hour),
+        min_spacing_km: MIN_SPACING_KM.toFixed(1),
+      })
       const res = await fetch(`${API_URL}/optimize?${params}`)
+      if (res.status === 404) {
+        // The saved hospital no longer exists on the server (e.g. the database was reset).
+        clearHospitalId()
+        setHospitalId(null)
+        return
+      }
       if (!res.ok) {
         setError(await readErrorMessage(res, 'Optimization failed'))
         return
@@ -95,11 +112,12 @@ export default function Page() {
         <label>Day<select value={day} onChange={(e) => setDay(e.target.value)}>{['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map((item) => <option key={item}>{item}</option>)}</select></label>
         <label className="range-label">Hour <strong>{formatHour(hour)}</strong><input type="range" min="0" max="23" value={hour} onChange={(e) => setHour(Number(e.target.value))} /></label>
         <label>Fleet size<input className="number-input" type="number" min="1" max="30" value={fleet} onChange={(e) => setFleet(Number(e.target.value))} /></label>
-        <button onClick={recalculate} disabled={loading} aria-busy={loading}>{loading ? 'Calculating…' : 'Recalculate'}</button>
+        <button onClick={recalculate} disabled={loading || !hospitalId} aria-busy={loading}>{loading ? 'Calculating…' : 'Recalculate'}</button>
       </section>
+      {hospitalId === null && <p className="controls-notice" role="status">No hospital is registered on this browser yet. <Link href="/register">Register your hospital</Link> to run the optimizer.</p>}
       {error && <p className="controls-error" role="alert">{error}</p>}
       <section className="content-grid">
-        <div className="map-card"><div className="map-heading"><div><p className="eyebrow">Mumbai operations map</p><h2>Demand by administrative ward</h2></div><span className="map-date">Live model view</span></div><div className="map"><MumbaiMap assignments={run?.assignments} /><div className="legend"><span><i className="legend-dot high" /> High demand</span><span><i className="legend-dot medium" /> Medium</span><span><i className="legend-dot low" /> Low</span></div></div></div>
+        <div className="map-card"><div className="map-heading"><div><p className="eyebrow">Mumbai operations map</p><h2>Demand by administrative ward</h2></div><span className="map-date">Live model view</span></div><div className="map"><MumbaiMap hour={hour} assignments={run?.assignments} /><div className="legend"><span><i className="legend-dot high" /> High demand</span><span><i className="legend-dot medium" /> Medium</span><span><i className="legend-dot low" /> Low</span></div></div></div>
         <aside className="stats-column">{run ? <OptimizationStats run={run} previous={previousRun} /> : <><div className="stat-card"><span>Current average response time</span><strong>14.2 <small>min</small></strong><em>Baseline</em></div><div className="stat-card optimized"><span>Optimized average response time</span><strong>9.1 <small>min</small></strong><em>↓ 36% faster</em></div><div className="comparison"><p>Optimization impact</p><div><span>Reachable within 10 min</span><strong>48% <b>→</b> 71%</strong></div><div><span>Worst high-risk ward</span><strong>18 min <b>→</b> 8 min</strong></div></div></>}</aside>
       </section>
       <section className="fleet-section"><div className="section-heading"><div><p className="eyebrow">Fleet overview</p><h2>Ambulance fleet</h2></div><span>{run ? run.assignments.length : fleet} units modeled · {day}</span></div><div className="table-wrap"><table><thead><tr>{['Ambulance ID', run ? 'Ward' : 'Current zone','Recommended position','ETA / response','Type','Status'].map((head) => <th key={head}>{head}</th>)}</tr></thead><tbody>{fleetRows.map((row) => <tr key={row[0]}>{row.map((cell, index) => <td key={index}>{index === 0 ? <strong>{cell}</strong> : index === 5 ? <span className={`badge ${cell.toLowerCase().replace(' ', '-')}`}>{cell}</span> : cell}</td>)}</tr>)}</tbody></table></div></section>
