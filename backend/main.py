@@ -4,16 +4,19 @@ Run from inside the backend/ folder:
     uvicorn main:app --reload
 """
 
+import logging
 from contextlib import asynccontextmanager
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import List
+from zoneinfo import ZoneInfo
 
 import geopandas as gpd
 import pandas as pd
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -33,6 +36,12 @@ RISK_SCORES_FILE = DATA_DIR / "ward_hour_risk_scores.csv"
 RISK_WARD_COL = "ward_code"
 RISK_HOUR_COL = "hour"
 RISK_SCORE_COL = "risk_score"
+
+# Runs plan for "today" in Mumbai's time zone, one hour-long window per run.
+PLANNING_TZ = ZoneInfo("Asia/Kolkata")
+MODEL_VERSION = "v1"
+
+logger = logging.getLogger(__name__)
 
 data: dict = {}
 
@@ -94,6 +103,78 @@ def _db_unavailable(exc: SQLAlchemyError) -> HTTPException:
     # Only the driver's first line: enough to diagnose, never the connection URL.
     reason = str(getattr(exc, "orig", exc)).strip().splitlines()[0]
     return HTTPException(status_code=503, detail=f"Database unreachable: {reason}")
+
+
+def _planning_window(hour: int) -> tuple[date, datetime, datetime]:
+    """Today's date in Asia/Kolkata and the timezone-aware [hour:00, hour+1:00) window on it."""
+    target_date = datetime.now(PLANNING_TZ).date()
+    window_start = datetime.combine(target_date, time(hour), tzinfo=PLANNING_TZ)
+    return target_date, window_start, window_start + timedelta(hours=1)
+
+
+def _new_run(hospital, target_date: date, hour: int, min_spacing_km: float, num_ambulances: int, **fields):
+    return models.OptimizationRun(
+        hospital_id=hospital.hospital_id,
+        target_date=target_date,
+        target_hour=hour,
+        min_spacing_km=min_spacing_km,
+        operating_radius_km=hospital.operating_radius_km,
+        num_ambulances=num_ambulances,
+        model_version=MODEL_VERSION,
+        **fields,
+    )
+
+
+def _record_failed_run(db: Session, error: str, **run_fields) -> None:
+    """Best effort: a failure to record the failure must not hide the original error."""
+    try:
+        db.add(_new_run(**run_fields, status=models.RunStatus.failed, error_message=error))
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("Could not record failed optimization run")
+
+
+def _save_run_history(db: Session, result: dict, fleet, window_start: datetime, window_end: datetime, **run_fields) -> int:
+    """Save the run, its chosen positions and the hourly assignments in one transaction."""
+    run = _new_run(**run_fields, status=models.RunStatus.succeeded, total_weighted_score=result["total_weighted_score"])
+    db.add(run)
+    db.flush()  # assigns run.run_id
+
+    by_score = sorted(result["details"], key=lambda d: d["weighted_score"], reverse=True)
+    db.add_all(
+        models.RunPosition(run_id=run.run_id, candidate_id=d["candidate_id"], weighted_score=d["weighted_score"], rank=rank)
+        for rank, d in enumerate(by_score, start=1)
+    )
+
+    # Free this hour for the new plan: the database's EXCLUDE constraint rejects
+    # overlapping non-cancelled assignments for the same ambulance.
+    ambulance_ids = {a.call_sign: a.ambulance_id for a in fleet}
+    db.execute(
+        update(models.AmbulanceAssignment)
+        .where(
+            models.AmbulanceAssignment.ambulance_id.in_(ambulance_ids.values()),
+            models.AmbulanceAssignment.status != models.AssignmentStatus.cancelled,
+            models.AmbulanceAssignment.valid_from < window_end,
+            models.AmbulanceAssignment.valid_to > window_start,
+        )
+        .values(status=models.AssignmentStatus.cancelled)
+        .execution_options(synchronize_session=False)
+    )
+
+    db.add_all(
+        models.AmbulanceAssignment(
+            ambulance_id=ambulance_ids[a["ambulance_id"]],
+            candidate_id=a["candidate_id"],
+            run_id=run.run_id,
+            valid_from=window_start,
+            valid_to=window_end,
+            status=models.AssignmentStatus.planned,
+        )
+        for a in result["assignments"]
+    )
+    db.commit()
+    return run.run_id
 
 
 class Ambulance(BaseModel):
@@ -209,10 +290,23 @@ def optimize(
 
     # Same shape the old in-memory registration had: {"id": ..., "type": "ALS" | "BLS"}.
     ambulances = [{"id": a.call_sign, "type": a.type.value} for a in fleet]
-
     num_ambulances = len(ambulances)
+
+    target_date, window_start, window_end = _planning_window(hour)
+    run_fields = dict(
+        hospital=hospital,
+        target_date=target_date,
+        hour=hour,
+        min_spacing_km=min_spacing_km,
+        num_ambulances=num_ambulances,
+    )
+
+    def fail(status_code: int, detail: str) -> HTTPException:
+        _record_failed_run(db, detail, **run_fields)
+        return HTTPException(status_code=status_code, detail=detail)
+
     if num_ambulances < 1:
-        raise HTTPException(status_code=400, detail="Registered hospital has no ambulances")
+        raise fail(400, "Registered hospital has no ambulances")
 
     candidates = data["candidates"]
     nearby = filter_candidates_by_radius(
@@ -222,9 +316,9 @@ def optimize(
         hospital.operating_radius_km,
     )
     if len(nearby) < num_ambulances:
-        raise HTTPException(
-            status_code=400,
-            detail=(
+        raise fail(
+            400,
+            (
                 f"Only {len(nearby)} candidate position(s) found within "
                 f"{hospital.operating_radius_km} km of "
                 f"{hospital.name}, but the registered fleet "
@@ -236,7 +330,7 @@ def optimize(
     risk = data["risk_scores"]
     hour_rows = risk[risk[RISK_HOUR_COL] == hour]
     if hour_rows.empty:
-        raise HTTPException(status_code=404, detail=f"No risk scores found for hour {hour}")
+        raise fail(404, f"No risk scores found for hour {hour}")
     zone_scores = dict(zip(hour_rows[RISK_WARD_COL], hour_rows[RISK_SCORE_COL]))
 
     scored = calculate_weighted_scores(nearby, data["travel_times"], zone_scores)
@@ -244,7 +338,7 @@ def optimize(
     try:
         result = optimize_ambulance_positions(scored, num_ambulances, min_spacing_km)
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise fail(422, str(exc))
 
     chosen = scored[scored["candidate_id"].isin(result["chosen_candidates"])]
     result["details"] = [
@@ -265,5 +359,45 @@ def optimize(
             ambulances, pd.DataFrame(result["details"])
         )
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise fail(422, str(exc))
+
+    # History is a side effect: if saving fails, still return the optimization.
+    try:
+        result["run_id"] = _save_run_history(db, result, fleet, window_start, window_end, **run_fields)
+    except Exception:
+        db.rollback()
+        logger.exception("Could not save optimization run history")
+        result["run_id"] = None
     return result
+
+
+@app.get("/runs")
+def list_runs(
+    hospital_id: int = Query(..., description="ID returned by POST /hospital/register"),
+    limit: int = Query(10, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    try:
+        if db.get(models.Hospital, hospital_id) is None:
+            raise HTTPException(status_code=404, detail=f"No hospital with hospital_id {hospital_id}")
+        runs = db.scalars(
+            select(models.OptimizationRun)
+            .where(models.OptimizationRun.hospital_id == hospital_id)
+            .order_by(models.OptimizationRun.created_at.desc(), models.OptimizationRun.run_id.desc())
+            .limit(limit)
+        ).all()
+    except SQLAlchemyError as exc:
+        raise _db_unavailable(exc)
+    return [
+        {
+            "run_id": r.run_id,
+            "created_at": r.created_at,
+            "target_date": r.target_date,
+            "target_hour": r.target_hour,
+            "status": r.status.value,
+            "num_ambulances": r.num_ambulances,
+            "total_weighted_score": r.total_weighted_score,
+            "error_message": r.error_message,
+        }
+        for r in runs
+    ]
