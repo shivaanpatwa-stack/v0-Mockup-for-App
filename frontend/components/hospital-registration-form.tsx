@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
 import type { LatLng, ViewTarget } from './location-picker-map'
-import { API_URL, ApiError, registerHospital, saveHospitalId } from '@/lib/api'
+import { API_URL, ApiError, registerHospital } from '@/lib/api'
 
 const LocationPickerMap = dynamic(() => import('./location-picker-map'), {
   ssr: false,
@@ -140,8 +140,6 @@ export default function HospitalRegistrationForm() {
         operating_radius_km: radiusKm,
         ambulances: ambulances.map((a) => ({ id: a.id.trim(), type: a.type })),
       })
-      // The dashboard reads this to know which hospital to optimize.
-      saveHospitalId(body.hospital_id)
       setFleetSize(body.fleet_size)
     } catch (err) {
       setSubmitError(

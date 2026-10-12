@@ -25,6 +25,167 @@ export type OptimizeResult = {
   total_weighted_score: number
   details: OptimizedPosition[]
   assignments: AmbulanceAssignment[]
+  /** null when the run worked but saving its history failed. */
+  run_id: number | null
+  /** False when the fleet couldn't reach every coverable ward within max_response_minutes. */
+  coverage_guaranteed: boolean
+  max_response_minutes: number
+  /** Wards no nearby candidate position can reach in time, so they were never required. */
+  uncoverable_wards: string[]
+  /** Coverable wards the chosen positions don't reach in time (empty when coverage is guaranteed). */
+  uncovered_wards: string[]
+}
+
+export type AmbulanceStatus = 'available' | 'responding' | 'at_hospital' | 'unavailable'
+
+export type Hospital = {
+  hospital_id: number
+  name: string
+  lat: number
+  lng: number
+  operating_radius_km: number
+  fleet_size: number
+  ambulances: { id: string; type: 'ALS' | 'BLS'; status: AmbulanceStatus }[]
+}
+
+/** The active (most recently registered) hospital, or null if none is registered. Throws ApiError on other server errors. */
+export async function getHospital(signal?: AbortSignal): Promise<Hospital | null> {
+  const res = await fetch(`${API_URL}/hospital`, { signal })
+  if (res.status === 404) return null
+  if (!res.ok) throw new ApiError(await readErrorMessage(res, 'Loading the hospital failed'))
+  return res.json()
+}
+
+export type AssignmentStatus = 'planned' | 'en_route' | 'in_position' | 'cancelled'
+
+export type CurrentAssignment = {
+  candidate_id: string
+  name: string | null
+  ward_code: string | null
+  lat: number | null
+  lng: number | null
+  assignment_status: AssignmentStatus
+  valid_from: string
+  valid_to: string
+}
+
+export type FleetAmbulance = {
+  call_sign: string
+  type: 'ALS' | 'BLS'
+  status: AmbulanceStatus
+  status_updated_at: string
+  /** The latest non-cancelled assignment, or null. */
+  current_assignment: CurrentAssignment | null
+}
+
+/** Live status of the active hospital's ambulances. Throws ApiError on a server error. */
+export async function getFleet(signal?: AbortSignal): Promise<FleetAmbulance[]> {
+  const res = await fetch(`${API_URL}/fleet`, { signal })
+  if (!res.ok) throw new ApiError(await readErrorMessage(res, 'Loading the fleet failed'))
+  return res.json()
+}
+
+async function sendJson<T>(method: 'POST' | 'PATCH', path: string, body: unknown, fallback: string): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new ApiError(await readErrorMessage(res, fallback))
+  return res.json()
+}
+
+export type SimulationRequest = {
+  hour: number
+  num_ambulances?: number
+  operating_radius_km?: number
+  min_spacing_km?: number
+  max_response_minutes?: number
+}
+
+export type SimulationResult = Omit<OptimizeResult, 'run_id'> & {
+  simulated: true
+  parameters: Required<SimulationRequest> & { synthetic_ambulances: number }
+}
+
+/** What-if run for the active hospital. Nothing is saved. Throws ApiError with the backend's detail. */
+export function simulate(request: SimulationRequest): Promise<SimulationResult> {
+  return sendJson('POST', '/simulate', request, 'Simulation failed')
+}
+
+export type HospitalUpdate = { name?: string; operating_radius_km?: number }
+
+/** Rename the active hospital and/or change its radius (its location can't change). */
+export function updateHospital(changes: HospitalUpdate): Promise<Hospital> {
+  return sendJson('PATCH', '/hospital', changes, 'Saving the hospital failed')
+}
+
+export type AmbulanceStatusResponse = {
+  call_sign: string
+  type: 'ALS' | 'BLS'
+  status: AmbulanceStatus
+  status_updated_at: string
+}
+
+/** Add an ambulance to the active hospital. Throws ApiError (409 if the ID is taken). */
+export function addAmbulance(ambulance: { id: string; type: 'ALS' | 'BLS' }): Promise<AmbulanceStatusResponse> {
+  return sendJson('POST', '/hospital/ambulances', ambulance, 'Adding the ambulance failed')
+}
+
+/** Change an ambulance's availability; 'unavailable' takes it out of service. */
+export function setAmbulanceStatus(callSign: string, status: AmbulanceStatus, note?: string): Promise<AmbulanceStatusResponse> {
+  return sendJson('PATCH', `/ambulances/${encodeURIComponent(callSign)}/status`, { status, note }, 'Updating the ambulance failed')
+}
+
+export type RunStatus = 'succeeded' | 'failed'
+
+export type RunSummary = {
+  run_id: number
+  /** ISO timestamp with offset. */
+  created_at: string
+  target_date: string
+  target_hour: number
+  status: RunStatus
+  num_ambulances: number
+  total_weighted_score: number | null
+  error_message: string | null
+}
+
+/** A saved run in the same shape as a live OptimizeResult, plus what it saved. */
+export type RunDetail = RunSummary & {
+  min_spacing_km: number
+  operating_radius_km: number
+  model_version: string | null
+  details: (Omit<OptimizedPosition, 'name' | 'ward_code' | 'lat' | 'lng'> & {
+    rank: number
+    name: string | null
+    ward_code: string | null
+    lat: number | null
+    lng: number | null
+  })[]
+  assignments: (Omit<AmbulanceAssignment, 'weighted_score' | 'lat' | 'lng'> & {
+    call_sign: string
+    weighted_score: number | null
+    lat: number | null
+    lng: number | null
+    status: AssignmentStatus
+    valid_from: string
+    valid_to: string
+  })[]
+}
+
+/** The hospital's most recent runs, newest first. Throws ApiError on a server error. */
+export async function getRuns(hospitalId: number, limit = 10, signal?: AbortSignal): Promise<RunSummary[]> {
+  const res = await fetch(`${API_URL}/runs?hospital_id=${hospitalId}&limit=${limit}`, { signal })
+  if (!res.ok) throw new ApiError(await readErrorMessage(res, 'Loading recent runs failed'))
+  return res.json()
+}
+
+/** One saved run of the active hospital. Throws ApiError (404 if it isn't that hospital's). */
+export async function getRun(runId: number): Promise<RunDetail> {
+  const res = await fetch(`${API_URL}/runs/${runId}`)
+  if (!res.ok) throw new ApiError(await readErrorMessage(res, 'Loading the run failed'))
+  return res.json()
 }
 
 export type DemandScore = {
@@ -65,35 +226,6 @@ export async function registerHospital(registration: HospitalRegistration): Prom
   })
   if (!res.ok) throw new ApiError(await readErrorMessage(res, 'Registration failed'))
   return res.json()
-}
-
-// The registered hospital is remembered per browser, so the dashboard knows which one to optimize.
-// Storage can be unavailable (private mode, blocked site data), so every access is guarded.
-const HOSPITAL_ID_KEY = 'hospital_id'
-
-export function saveHospitalId(id: number) {
-  try {
-    localStorage.setItem(HOSPITAL_ID_KEY, String(id))
-  } catch {
-    // Nothing to do: the dashboard will ask the user to register again.
-  }
-}
-
-export function loadHospitalId(): number | null {
-  try {
-    const id = Number(localStorage.getItem(HOSPITAL_ID_KEY))
-    return Number.isInteger(id) && id > 0 ? id : null
-  } catch {
-    return null
-  }
-}
-
-export function clearHospitalId() {
-  try {
-    localStorage.removeItem(HOSPITAL_ID_KEY)
-  } catch {
-    // Ignore: see saveHospitalId.
-  }
 }
 
 export async function readErrorMessage(res: Response, fallback: string): Promise<string> {
