@@ -1,41 +1,55 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { GeoJSON } from 'react-leaflet'
 import type { Feature, FeatureCollection } from 'geojson'
-import type { Layer, PathOptions } from 'leaflet'
+import type { GeoJSON as LeafletGeoJSON, Layer, Path, PathOptions } from 'leaflet'
+import { getDemandScores } from '@/lib/api'
 
 const GEOJSON_URL = '/data/zones_full_features_final.geojson'
-const CSV_URL = '/data/ward_hour_risk_scores.csv'
+
+// risk_score bands: below LOW_MAX is low, LOW_MAX..HIGH_MIN is medium, above HIGH_MIN is high.
+const LOW_MAX = 0.2
+const HIGH_MIN = 0.46
+const LOW_COLOR = '#22C55E'
+const MEDIUM_COLOR = '#F59E0B'
+const HIGH_COLOR = '#EF4444'
+const NO_SCORE_COLOR = '#94A3B8'
+
+const FETCH_DEBOUNCE_MS = 300
 
 type RiskLookup = Record<string, number>
 
 export function riskColor(score: number) {
-  if (score < 0.33) return '#22C55E'
-  if (score <= 0.66) return '#F59E0B'
-  return '#EF4444'
+  if (score < LOW_MAX) return LOW_COLOR
+  if (score <= HIGH_MIN) return MEDIUM_COLOR
+  return HIGH_COLOR
 }
 
-// Builds ward_code -> risk_score_noisy for a single hour. The CSV has no quoted fields.
-function parseRiskCsv(text: string, hour: number): RiskLookup {
-  const [header, ...rows] = text.trim().split(/\r?\n/)
-  const cols = header.split(',')
-  const codeIdx = cols.indexOf('ward_code')
-  const hourIdx = cols.indexOf('hour')
-  const scoreIdx = cols.indexOf('risk_score_noisy')
+const wardCode = (feature?: Feature): string | undefined => feature?.properties?.ward_code
 
-  const lookup: RiskLookup = {}
-  for (const row of rows) {
-    const cells = row.split(',')
-    if (Number(cells[hourIdx]) === hour) lookup[cells[codeIdx]] = Number(cells[scoreIdx])
+function wardStyle(feature: Feature | undefined, scores: RiskLookup | null): PathOptions {
+  const code = wardCode(feature)
+  const score = code && scores ? scores[code] : undefined
+  return {
+    color: '#ffffff',
+    weight: 1,
+    fillColor: score === undefined ? NO_SCORE_COLOR : riskColor(score),
+    fillOpacity: 0.5,
   }
-  return lookup
 }
 
-// Later, swap the CSV fetch for the live API; `hour` can then come from a slider.
-export default function WardRiskLayer({ hour = 21 }: { hour?: number }) {
+// Stable identity on purpose: react-leaflet re-applies `style` whenever the prop changes, and
+// the restyle effect below already handles new scores. Wards start grey until scores arrive.
+const initialStyle = (feature?: Feature) => wardStyle(feature, null)
+
+export default function WardRiskLayer({ hour }: { hour: number }) {
   const [zones, setZones] = useState<FeatureCollection | null>(null)
   const [scores, setScores] = useState<RiskLookup | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
+  const layerRef = useRef<LeafletGeoJSON | null>(null)
+  // Read by the tooltip callback, which Leaflet calls outside React renders.
+  const scoresRef = useRef<RiskLookup | null>(null)
 
   useEffect(() => {
     fetch(GEOJSON_URL)
@@ -44,40 +58,58 @@ export default function WardRiskLayer({ hour = 21 }: { hour?: number }) {
       .catch((err) => console.error('Failed to load ward boundaries', err))
   }, [])
 
+  // Previous scores stay on the map until the new hour's scores arrive, or if they fail.
   useEffect(() => {
-    let cancelled = false
-    fetch(CSV_URL)
-      .then((res) => res.text())
-      .then((text) => !cancelled && setScores(parseRiskCsv(text, hour)))
-      .catch((err) => console.error('Failed to load ward risk scores', err))
+    const controller = new AbortController()
+    const timer = setTimeout(() => {
+      getDemandScores(hour, controller.signal)
+        .then((rows) => {
+          setScores(Object.fromEntries(rows.map((r) => [r.ward_code, r.risk_score])))
+          setLoadFailed(false)
+        })
+        .catch((err) => {
+          if ((err as Error).name === 'AbortError') return
+          console.error('Failed to load ward scores', err)
+          setLoadFailed(true)
+        })
+    }, FETCH_DEBOUNCE_MS)
     return () => {
-      cancelled = true
+      clearTimeout(timer)
+      controller.abort()
     }
   }, [hour])
 
-  if (!zones || !scores) return null
+  // Restyle the existing layer in place: remounting <GeoJSON> would make the wards flicker.
+  useEffect(() => {
+    scoresRef.current = scores
+    layerRef.current?.eachLayer((layer) => {
+      const path = layer as Path & { feature?: Feature }
+      path.setStyle(wardStyle(path.feature, scores))
+    })
+  }, [scores, zones])
 
-  const scoreFor = (feature?: Feature) => scores[feature?.properties?.ward_code]
-
-  const style = (feature?: Feature): PathOptions => {
-    const score = scoreFor(feature)
-    return {
-      color: '#ffffff',
-      weight: 1,
-      fillColor: score === undefined ? '#94A3B8' : riskColor(score),
-      fillOpacity: 0.5,
-    }
-  }
+  if (!zones) return null
 
   const onEachFeature = (feature: Feature, layer: Layer) => {
-    const score = scoreFor(feature)
+    // A function, so the tooltip shows the current score each time it opens.
     layer.bindTooltip(
-      `<strong>Ward ${feature.properties?.ward_code}</strong><br/>Risk score: ${
-        score === undefined ? 'n/a' : score.toFixed(2)
-      }`,
+      () => {
+        const code = wardCode(feature)
+        const score = code ? scoresRef.current?.[code] : undefined
+        return `<strong>Ward ${code ?? '?'}</strong><br/>Risk score: ${score === undefined ? 'n/a' : score.toFixed(2)}`
+      },
       { sticky: true },
     )
   }
 
-  return <GeoJSON key={hour} data={zones} style={style} onEachFeature={onEachFeature} />
+  return (
+    <>
+      <GeoJSON ref={layerRef} data={zones} style={initialStyle} onEachFeature={onEachFeature} />
+      {loadFailed && (
+        <div className="ward-scores-note" role="status">
+          Couldn&apos;t load ward scores
+        </div>
+      )}
+    </>
+  )
 }

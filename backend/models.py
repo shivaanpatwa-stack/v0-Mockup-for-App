@@ -13,17 +13,18 @@ from datetime import date, datetime, timezone
 from typing import List, Optional
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Date,
     DateTime,
-    Enum,
     Float,
     ForeignKey,
     Integer,
     SmallInteger,
-    String,
     Text,
+    UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import ENUM
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -59,14 +60,13 @@ class AssignmentStatus(str, enum.Enum):
     cancelled = "cancelled"
 
 
-def _enum(enum_cls: type[enum.Enum]) -> Enum:
-    # Store each member's value ("at_hospital", "ALS"). native_enum=False sends plain
-    # strings, which PostgreSQL accepts for both enum-typed and text/CHECK columns,
-    # so the model doesn't depend on the database's enum type names.
-    return Enum(
+def _enum(enum_cls: type[enum.Enum], type_name: str) -> ENUM:
+    # Bind to the PostgreSQL enum type that already exists in Supabase, storing each
+    # member's value ("at_hospital", "ALS"). create_type=False: the SQL owns the type.
+    return ENUM(
         enum_cls,
-        native_enum=False,
-        create_constraint=False,
+        name=type_name,
+        create_type=False,
         values_callable=lambda members: [m.value for m in members],
         validate_strings=True,
     )
@@ -89,13 +89,14 @@ class Hospital(Base):
 
 class Ambulance(Base):
     __tablename__ = "ambulances"
+    __table_args__ = (UniqueConstraint("hospital_id", "call_sign"),)
 
     ambulance_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.hospital_id"), nullable=False)
     call_sign: Mapped[str] = mapped_column(Text, nullable=False)
-    type: Mapped[AmbulanceType] = mapped_column(_enum(AmbulanceType), nullable=False)
+    type: Mapped[AmbulanceType] = mapped_column(_enum(AmbulanceType, "ambulance_type"), nullable=False)
     current_status: Mapped[AmbulanceStatus] = mapped_column(
-        _enum(AmbulanceStatus), nullable=False, default=AmbulanceStatus.available
+        _enum(AmbulanceStatus, "ambulance_status"), nullable=False, default=AmbulanceStatus.available
     )
     status_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
@@ -108,9 +109,9 @@ class Ambulance(Base):
 class AmbulanceStatusEvent(Base):
     __tablename__ = "ambulance_status_events"
 
-    event_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     ambulance_id: Mapped[int] = mapped_column(ForeignKey("ambulances.ambulance_id"), nullable=False)
-    status: Mapped[AmbulanceStatus] = mapped_column(_enum(AmbulanceStatus), nullable=False)
+    status: Mapped[AmbulanceStatus] = mapped_column(_enum(AmbulanceStatus, "ambulance_status"), nullable=False)
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
@@ -156,7 +157,7 @@ class OptimizationRun(Base):
     operating_radius_km: Mapped[float] = mapped_column(Float, nullable=False)
     num_ambulances: Mapped[int] = mapped_column(Integer, nullable=False)
     model_version: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    status: Mapped[RunStatus] = mapped_column(_enum(RunStatus), nullable=False)
+    status: Mapped[RunStatus] = mapped_column(_enum(RunStatus, "run_status"), nullable=False)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     # Empty for failed runs.
     total_weighted_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -170,7 +171,7 @@ class RunPosition(Base):
     __tablename__ = "run_positions"
 
     run_id: Mapped[int] = mapped_column(ForeignKey("optimization_runs.run_id"), primary_key=True)
-    candidate_id: Mapped[str] = mapped_column(String, primary_key=True)
+    candidate_id: Mapped[str] = mapped_column(Text, primary_key=True)
     weighted_score: Mapped[float] = mapped_column(Float, nullable=False)
     rank: Mapped[int] = mapped_column(SmallInteger, nullable=False)
 
@@ -182,13 +183,13 @@ class AmbulanceAssignment(Base):
 
     assignment_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     ambulance_id: Mapped[int] = mapped_column(ForeignKey("ambulances.ambulance_id"), nullable=False)
-    candidate_id: Mapped[str] = mapped_column(String, nullable=False)
+    candidate_id: Mapped[str] = mapped_column(Text, nullable=False)
     # Empty for a manual move that didn't come from an optimizer run.
     run_id: Mapped[Optional[int]] = mapped_column(ForeignKey("optimization_runs.run_id"), nullable=True)
     valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     valid_to: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     status: Mapped[AssignmentStatus] = mapped_column(
-        _enum(AssignmentStatus), nullable=False, default=AssignmentStatus.planned
+        _enum(AssignmentStatus, "assignment_status"), nullable=False, default=AssignmentStatus.planned
     )
 
     ambulance: Mapped["Ambulance"] = relationship(back_populates="assignments")
