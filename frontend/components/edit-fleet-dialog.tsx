@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { addAmbulance, ApiError, setAmbulanceStatus, updateHospital, type Hospital } from '@/lib/api'
+import CopyCode from './copy-code'
 
 const MAX_RADIUS_KM = 100
 const NETWORK_ERROR = "Can't reach the server. Is the backend running?"
@@ -79,6 +80,7 @@ export default function EditFleetDialog({ hospital, open, onClose, onChanged }: 
         <h2 id="fleet-dialog-title">Edit fleet</h2>
         <button type="button" className="banner-dismiss" aria-label="Close" onClick={onClose}>×</button>
       </div>
+      <CopyCode code={hospital.code} className="fleet-dialog-code" />
       {error && <p className="controls-error" role="alert">{error}<button type="button" className="banner-dismiss" aria-label="Dismiss error" onClick={() => setError(null)}>×</button></p>}
 
       <form className="fleet-dialog-section" onSubmit={saveHospital}>
