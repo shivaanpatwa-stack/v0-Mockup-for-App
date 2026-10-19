@@ -5,6 +5,7 @@ Run from inside the backend/ folder:
 """
 
 import logging
+import secrets
 from contextlib import asynccontextmanager
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -13,7 +14,7 @@ from zoneinfo import ZoneInfo
 
 import geopandas as gpd
 import pandas as pd
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select, update
@@ -121,13 +122,52 @@ def _db_unavailable(exc: SQLAlchemyError) -> HTTPException:
     return HTTPException(status_code=503, detail=f"Database unreachable: {reason}")
 
 
-def _active_hospital(db: Session):
-    """The most recently registered hospital, or None."""
+HOSPITAL_CODE_HEADER = "X-Hospital-Code"
+CODE_ATTEMPTS = 10
+
+
+def _hospital_code_header():
+    # Optional on every endpoint that resolves a hospital; see _resolve_hospital.
+    return Header(None, alias=HOSPITAL_CODE_HEADER)
+
+
+def _resolve_hospital(db: Session, code: Optional[str]):
+    """The hospital a request is about.
+
+    With a code (case-insensitive), that hospital or a 404, never a fallback. Without one,
+    the most recently registered hospital, or None if there are none.
+    """
+    code = (code or "").strip().upper()
+    if code:
+        hospital = db.scalars(select(models.Hospital).where(models.Hospital.code == code)).first()
+        if hospital is None:
+            raise HTTPException(status_code=404, detail="Hospital code not found")
+        return hospital
     return db.scalars(
         select(models.Hospital)
         .order_by(models.Hospital.created_at.desc(), models.Hospital.hospital_id.desc())
         .limit(1)
     ).first()
+
+
+def _hospital_for_id(db: Session, hospital_id: int, code: Optional[str]):
+    """For endpoints that take ?hospital_id=: the code wins when given and must match it."""
+    if (code or "").strip():
+        hospital = _resolve_hospital(db, code)
+        if hospital.hospital_id != hospital_id:
+            raise HTTPException(status_code=400, detail=f"hospital_id does not match {HOSPITAL_CODE_HEADER}")
+        return hospital
+    return db.get(models.Hospital, hospital_id)
+
+
+def _generate_hospital_code(db: Session, name: str) -> str:
+    """PREFIX-NNNN: up to 5 letters A-Z from the name (or HOSP) and 4 random digits."""
+    prefix = "".join(ch for ch in name.upper() if "A" <= ch <= "Z")[:5] or "HOSP"
+    for _ in range(CODE_ATTEMPTS):
+        code = f"{prefix}-{1000 + secrets.randbelow(9000)}"
+        if db.scalar(select(func.count()).select_from(models.Hospital).where(models.Hospital.code == code)) == 0:
+            return code
+    raise HTTPException(status_code=503, detail="Could not generate a unique hospital code; please try again")
 
 
 def _hospital_fleet(db: Session, hospital_id: int):
@@ -138,9 +178,9 @@ def _hospital_fleet(db: Session, hospital_id: int):
     ).all()
 
 
-def _require_active_ambulance(db: Session, call_sign: str):
-    """The active hospital's ambulance with this call sign, or a 404."""
-    hospital = _active_hospital(db)
+def _require_active_ambulance(db: Session, call_sign: str, hospital_code: Optional[str] = None):
+    """The resolved hospital's ambulance with this call sign, or a 404."""
+    hospital = _resolve_hospital(db, hospital_code)
     if hospital is None:
         raise HTTPException(status_code=404, detail="No hospital registered. POST to /hospital/register first.")
     ambulance = db.scalars(
@@ -182,6 +222,7 @@ def _assignment_summary(assignment) -> dict:
 def _hospital_payload(hospital, fleet) -> dict:
     return {
         "hospital_id": hospital.hospital_id,
+        "code": hospital.code,
         "name": hospital.name,
         "lat": hospital.lat,
         "lng": hospital.lng,
@@ -433,11 +474,16 @@ def health_db(db: Session = Depends(get_db)):
 
 @app.post("/hospital/register")
 def register_hospital(registration: HospitalRegistration, db: Session = Depends(get_db)):
+    try:
+        code = _generate_hospital_code(db, registration.hospital_name)
+    except SQLAlchemyError as exc:
+        raise _db_unavailable(exc)
     hospital = models.Hospital(
         name=registration.hospital_name,
         lat=registration.lat,
         lng=registration.lng,
         operating_radius_km=registration.operating_radius_km,
+        code=code,
     )
     # current_status defaults to available in the model.
     hospital.ambulances = [
@@ -447,8 +493,11 @@ def register_hospital(registration: HospitalRegistration, db: Session = Depends(
     try:
         db.add(hospital)
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
+        if getattr(getattr(exc.orig, "diag", None), "constraint_name", None) == "hospitals_code_key":
+            # Another registration took the same code between our check and the insert.
+            raise HTTPException(status_code=409, detail="Hospital code clash; please try again")
         # ambulances has UNIQUE (hospital_id, call_sign).
         raise HTTPException(status_code=409, detail="Each ambulance ID must be unique within the hospital")
     except SQLAlchemyError as exc:
@@ -457,15 +506,16 @@ def register_hospital(registration: HospitalRegistration, db: Session = Depends(
     return {
         "status": "registered",
         "hospital_id": hospital.hospital_id,
+        "code": hospital.code,
         "fleet_size": len(registration.ambulances),
     }
 
 
 @app.get("/hospital")
-def active_hospital(db: Session = Depends(get_db)):
+def active_hospital(db: Session = Depends(get_db), hospital_code: Optional[str] = _hospital_code_header()):
     """The most recently registered hospital and its fleet."""
     try:
-        hospital = _active_hospital(db)
+        hospital = _resolve_hospital(db, hospital_code)
         fleet = _hospital_fleet(db, hospital.hospital_id) if hospital else []
     except SQLAlchemyError as exc:
         raise _db_unavailable(exc)
@@ -476,10 +526,12 @@ def active_hospital(db: Session = Depends(get_db)):
 
 
 @app.patch("/hospital")
-def update_hospital(changes: HospitalUpdate, db: Session = Depends(get_db)):
+def update_hospital(
+    changes: HospitalUpdate, db: Session = Depends(get_db), hospital_code: Optional[str] = _hospital_code_header()
+):
     """Rename the active hospital and/or change its radius. Its location can't change here."""
     try:
-        hospital = _active_hospital(db)
+        hospital = _resolve_hospital(db, hospital_code)
         if hospital is None:
             raise HTTPException(status_code=404, detail="No hospital registered. POST to /hospital/register first.")
         if changes.name is not None:
@@ -495,10 +547,10 @@ def update_hospital(changes: HospitalUpdate, db: Session = Depends(get_db)):
 
 
 @app.post("/hospital/ambulances", status_code=201)
-def add_ambulance(new: Ambulance, db: Session = Depends(get_db)):
+def add_ambulance(new: Ambulance, db: Session = Depends(get_db), hospital_code: Optional[str] = _hospital_code_header()):
     """Add an ambulance (status available) to the active hospital."""
     try:
-        hospital = _active_hospital(db)
+        hospital = _resolve_hospital(db, hospital_code)
         if hospital is None:
             raise HTTPException(status_code=404, detail="No hospital registered. POST to /hospital/register first.")
         ambulance = models.Ambulance(
@@ -522,10 +574,10 @@ def add_ambulance(new: Ambulance, db: Session = Depends(get_db)):
 
 
 @app.get("/fleet")
-def fleet_status(db: Session = Depends(get_db)):
+def fleet_status(db: Session = Depends(get_db), hospital_code: Optional[str] = _hospital_code_header()):
     """The active hospital's ambulances with live status and current assignment."""
     try:
-        hospital = _active_hospital(db)
+        hospital = _resolve_hospital(db, hospital_code)
         if hospital is None:
             raise HTTPException(status_code=404, detail="No hospital registered. POST to /hospital/register first.")
         fleet = _hospital_fleet(db, hospital.hospital_id)
@@ -546,9 +598,14 @@ def fleet_status(db: Session = Depends(get_db)):
 
 
 @app.patch("/ambulances/{call_sign}/status")
-def update_ambulance_status(call_sign: str, update_: AmbulanceStatusUpdate, db: Session = Depends(get_db)):
+def update_ambulance_status(
+    call_sign: str,
+    update_: AmbulanceStatusUpdate,
+    db: Session = Depends(get_db),
+    hospital_code: Optional[str] = _hospital_code_header(),
+):
     try:
-        ambulance = _require_active_ambulance(db, call_sign)
+        ambulance = _require_active_ambulance(db, call_sign, hospital_code)
         # Same status again (e.g. a double tap): no change and no duplicate event.
         if ambulance.current_status != update_.status:
             now = datetime.now(PLANNING_TZ)
@@ -572,9 +629,14 @@ def update_ambulance_status(call_sign: str, update_: AmbulanceStatusUpdate, db: 
 
 
 @app.patch("/ambulances/{call_sign}/assignment-status")
-def update_assignment_status(call_sign: str, update_: AssignmentStatusUpdate, db: Session = Depends(get_db)):
+def update_assignment_status(
+    call_sign: str,
+    update_: AssignmentStatusUpdate,
+    db: Session = Depends(get_db),
+    hospital_code: Optional[str] = _hospital_code_header(),
+):
     try:
-        ambulance = _require_active_ambulance(db, call_sign)
+        ambulance = _require_active_ambulance(db, call_sign, hospital_code)
         assignment = _current_assignments(db, [ambulance.ambulance_id]).get(ambulance.ambulance_id)
         if assignment is None:
             raise HTTPException(status_code=404, detail=f"Ambulance {call_sign!r} has no current assignment")
@@ -616,12 +678,13 @@ def optimize(
         20.0, ge=5, le=60, description="Every ward some candidate can reach this fast must be covered"
     ),
     db: Session = Depends(get_db),
+    hospital_code: Optional[str] = _hospital_code_header(),
 ):
     if "error" in data:
         raise HTTPException(status_code=503, detail=data["error"])
 
     try:
-        hospital = db.get(models.Hospital, hospital_id)
+        hospital = _hospital_for_id(db, hospital_id, hospital_code)
         fleet = (
             db.scalars(
                 select(models.Ambulance)
@@ -680,13 +743,15 @@ def optimize(
 
 
 @app.post("/simulate")
-def simulate(request: SimulationRequest, db: Session = Depends(get_db)):
+def simulate(
+    request: SimulationRequest, db: Session = Depends(get_db), hospital_code: Optional[str] = _hospital_code_header()
+):
     """What-if planning for the active hospital. Reads only: nothing is saved or changed."""
     if "error" in data:
         raise HTTPException(status_code=503, detail=data["error"])
 
     try:
-        hospital = _active_hospital(db)
+        hospital = _resolve_hospital(db, hospital_code)
         fleet = _hospital_fleet(db, hospital.hospital_id) if hospital else []
     except SQLAlchemyError as exc:
         raise _db_unavailable(exc)
@@ -732,9 +797,10 @@ def list_runs(
     hospital_id: int = Query(..., description="ID returned by POST /hospital/register"),
     limit: int = Query(10, ge=1, le=50),
     db: Session = Depends(get_db),
+    hospital_code: Optional[str] = _hospital_code_header(),
 ):
     try:
-        if db.get(models.Hospital, hospital_id) is None:
+        if _hospital_for_id(db, hospital_id, hospital_code) is None:
             raise HTTPException(status_code=404, detail=f"No hospital with hospital_id {hospital_id}")
         runs = db.scalars(
             select(models.OptimizationRun)
@@ -748,10 +814,10 @@ def list_runs(
 
 
 @app.get("/runs/{run_id}")
-def get_run(run_id: int, db: Session = Depends(get_db)):
+def get_run(run_id: int, db: Session = Depends(get_db), hospital_code: Optional[str] = _hospital_code_header()):
     """One of the active hospital's runs, with its positions and assignments in the /optimize shape."""
     try:
-        hospital = _active_hospital(db)
+        hospital = _resolve_hospital(db, hospital_code)
         run = db.get(models.OptimizationRun, run_id)
         if hospital is None or run is None or run.hospital_id != hospital.hospital_id:
             raise HTTPException(status_code=404, detail=f"No run {run_id} for the active hospital")

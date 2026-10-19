@@ -2,11 +2,11 @@
 
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
 import type { LatLng, ViewTarget } from './location-picker-map'
-import { API_URL, ApiError, registerHospital } from '@/lib/api'
+import CopyCode from './copy-code'
+import { API_URL, ApiError, registerHospital, saveHospitalCode, type RegisterHospitalResponse } from '@/lib/api'
 
 const LocationPickerMap = dynamic(() => import('./location-picker-map'), {
   ssr: false,
@@ -19,7 +19,6 @@ const MUMBAI_VIEWBOX = '72.75,19.30,73.05,18.85'
 
 const MIN_RADIUS_KM = 5
 const MAX_RADIUS_KM = 30
-const REDIRECT_DELAY_MS = 2000
 
 type AmbulanceType = 'ALS' | 'BLS'
 type AmbulanceRow = { key: number; id: string; type: AmbulanceType }
@@ -28,8 +27,6 @@ type AmbulanceRow = { key: number; id: string; type: AmbulanceType }
 type NominatimResult = { boundingbox: [string, string, string, string] }
 
 export default function HospitalRegistrationForm() {
-  const router = useRouter()
-
   const [name, setName] = useState('')
   const [radius, setRadius] = useState('15')
   const [ambulances, setAmbulances] = useState<AmbulanceRow[]>([{ key: 0, id: '', type: 'ALS' }])
@@ -44,7 +41,7 @@ export default function HospitalRegistrationForm() {
 
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
-  const [fleetSize, setFleetSize] = useState<number | null>(null)
+  const [registration, setRegistration] = useState<RegisterHospitalResponse | null>(null)
 
   const radiusKm = Number(radius)
   const radiusValid =
@@ -54,7 +51,7 @@ export default function HospitalRegistrationForm() {
   const allIdsFilled = ids.every(Boolean)
   const hasDuplicateIds = new Set(ids.filter(Boolean)).size !== ids.filter(Boolean).length
 
-  const registered = fleetSize !== null
+  const registered = registration !== null
   const canSubmit =
     name.trim() !== '' &&
     radiusValid &&
@@ -64,12 +61,6 @@ export default function HospitalRegistrationForm() {
     location !== null &&
     !submitting &&
     !registered
-
-  useEffect(() => {
-    if (!registered) return
-    const timer = setTimeout(() => router.push('/'), REDIRECT_DELAY_MS)
-    return () => clearTimeout(timer)
-  }, [registered, router])
 
   useEffect(() => () => searchAbort.current?.abort(), [])
 
@@ -140,7 +131,9 @@ export default function HospitalRegistrationForm() {
         operating_radius_km: radiusKm,
         ambulances: ambulances.map((a) => ({ id: a.id.trim(), type: a.type })),
       })
-      setFleetSize(body.fleet_size)
+      // Sent as X-Hospital-Code from now on, so the dashboard shows this hospital.
+      saveHospitalCode(body.code)
+      setRegistration(body)
     } catch (err) {
       setSubmitError(
         err instanceof ApiError ? err.message : `Couldn't reach the server at ${API_URL}. Is the backend running?`,
@@ -278,11 +271,16 @@ export default function HospitalRegistrationForm() {
           {submitError}
         </p>
       )}
-      {registered && (
-        <div className="reg-success" role="status">
-          <strong>Hospital registered.</strong> {fleetSize} {fleetSize === 1 ? 'ambulance' : 'ambulances'} added to
-          your fleet. Taking you to the dashboard…{' '}
-          <Link href="/">Go now</Link>
+      {registration && (
+        <div className="reg-success reg-complete" role="status">
+          <p>
+            <strong>Registration complete.</strong> Your driver code is <strong className="reg-code">{registration.code}</strong>
+          </p>
+          <CopyCode code={registration.code} />
+          <p className="reg-note">
+            Drivers enter this code in the app. {registration.fleet_size} {registration.fleet_size === 1 ? 'ambulance' : 'ambulances'} added to your fleet.
+          </p>
+          <Link href="/" className="reg-dashboard-link">Go to dashboard</Link>
         </div>
       )}
 

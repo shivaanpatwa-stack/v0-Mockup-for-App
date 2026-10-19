@@ -81,6 +81,8 @@ class Hospital(Base):
     lng: Mapped[float] = mapped_column(Float, nullable=False)
     operating_radius_km: Mapped[float] = mapped_column(Float, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    # Short identifier clients send as X-Hospital-Code, e.g. "PAREL-4821". Uppercase; never changes.
+    code: Mapped[str] = mapped_column(Text, nullable=False, unique=True, index=True)
 
     ambulances: Mapped[List["Ambulance"]] = relationship(back_populates="hospital")
     drivers: Mapped[List["Driver"]] = relationship(back_populates="hospital")
