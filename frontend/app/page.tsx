@@ -5,8 +5,10 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
 import {
-  API_URL,
+  apiFetch,
   ApiError,
+  HOSPITAL_CODE_INVALID_EVENT,
+  STALE_CODE_MESSAGE,
   getFleet,
   getHospital,
   getRun,
@@ -23,6 +25,7 @@ import {
   type RunSummary,
   type SimulationResult,
 } from '@/lib/api'
+import CopyCode from '@/components/copy-code'
 import EditFleetDialog from '@/components/edit-fleet-dialog'
 import WhatIfPanel from '@/components/what-if-panel'
 
@@ -227,6 +230,14 @@ export default function Page() {
     }
   }, [hospital])
 
+  // A stale stored hospital code was cleared (lib/api.ts). Some callers, like fleet polling, swallow
+  // their errors, so the banner is raised here for every request.
+  useEffect(() => {
+    const onInvalid = () => setError(STALE_CODE_MESSAGE)
+    window.addEventListener(HOSPITAL_CODE_INVALID_EVENT, onInvalid)
+    return () => window.removeEventListener(HOSPITAL_CODE_INVALID_EVENT, onInvalid)
+  }, [])
+
   const refreshRuns = useCallback(async () => {
     if (!hospital) return
     try {
@@ -297,7 +308,7 @@ export default function Page() {
         hour: String(hour),
         min_spacing_km: String(spacingKm),
       })
-      const res = await fetch(`${API_URL}/optimize?${params}`)
+      const res = await apiFetch(`/optimize?${params}`)
       if (!res.ok) {
         // Earlier results stay on screen; only the banner changes.
         setError(await readErrorMessage(res, res.status === 503 ? 'Server data unavailable' : 'Optimization failed'))
@@ -307,8 +318,8 @@ export default function Page() {
       setPreviousRun(run)
       setRun({ ...result, hour })
       setFleetChanged(false)
-    } catch {
-      setError(NETWORK_ERROR)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : NETWORK_ERROR)
     } finally {
       setLoading(false)
       // Failed runs are recorded too, so refresh either way.
@@ -324,7 +335,7 @@ export default function Page() {
     <main className="dashboard-shell">
       <header className="topbar">
         <div><p className="eyebrow">Fleet intelligence</p><h1>Ambulance Response Optimization Platform</h1></div>
-        <div className="topbar-actions"><div className="hospital"><span className="status-dot" /> {hospital?.name ?? 'Loading hospital…'}</div><Link href="/register" className="reg-link">Register hospital</Link></div>
+        <div className="topbar-actions"><div className="hospital"><span className="status-dot" /> {hospital?.name ?? 'Loading hospital…'}{hospital && <CopyCode code={hospital.code} className="hospital-code" />}</div><Link href="/register" className="reg-link">Register hospital</Link></div>
       </header>
       <section className="controls" aria-label="Model controls">
         <label>Day<select value={day} onChange={(e) => setDay(e.target.value)}>{['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map((item) => <option key={item}>{item}</option>)}</select></label>

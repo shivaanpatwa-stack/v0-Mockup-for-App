@@ -91,3 +91,13 @@
 .fleet-dialog-list li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;font-size:12px}
 .fleet-dialog-list li+li{border-top:1px solid #f0f4f7}
 .fleet-dialog-list button{background:#fff;border:1px solid #0c4a6e;color:#0c4a6e}
+.copy-code{display:inline-flex;align-items:center;gap:6px;font-size:12px}
+.copy-code strong{letter-spacing:.04em}
+.copy-code-button{height:22px;padding:0 8px;border:1px solid currentColor;border-radius:5px;background:transparent;color:inherit;font:inherit;font-size:11px;font-weight:700;cursor:pointer}
+.hospital-code{display:flex;margin-top:4px;color:#71869b;font-size:11px}
+.fleet-dialog-code{margin-bottom:12px;color:#33506a}
+.reg-complete{display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+.reg-complete p{margin:0}
+.reg-code{font-size:15px;letter-spacing:.04em}
+.reg-note{font-size:12px}
+.reg-dashboard-link{display:inline-flex;align-items:center;height:32px;padding:0 14px;border-radius:7px;background:#166534;color:#fff !important;text-decoration:none}
