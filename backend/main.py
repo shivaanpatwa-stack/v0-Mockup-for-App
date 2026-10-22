@@ -9,6 +9,7 @@ import logging
 import threading
 import time as clock
 from collections import defaultdict, deque
+import secrets
 from contextlib import asynccontextmanager
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -227,6 +228,26 @@ def _new_credential(make):
         raise HTTPException(status_code=503, detail=f"{exc}; please try again")
     except SQLAlchemyError as exc:
         raise _db_unavailable(exc)
+
+
+def _hospital_for_id(db: Session, hospital_id: int, code: Optional[str]):
+    """For endpoints that take ?hospital_id=: the code wins when given and must match it."""
+    if (code or "").strip():
+        hospital = _resolve_hospital(db, code)
+        if hospital.hospital_id != hospital_id:
+            raise HTTPException(status_code=400, detail=f"hospital_id does not match {HOSPITAL_CODE_HEADER}")
+        return hospital
+    return db.get(models.Hospital, hospital_id)
+
+
+def _generate_hospital_code(db: Session, name: str) -> str:
+    """PREFIX-NNNN: up to 5 letters A-Z from the name (or HOSP) and 4 random digits."""
+    prefix = "".join(ch for ch in name.upper() if "A" <= ch <= "Z")[:5] or "HOSP"
+    for _ in range(CODE_ATTEMPTS):
+        code = f"{prefix}-{1000 + secrets.randbelow(9000)}"
+        if db.scalar(select(func.count()).select_from(models.Hospital).where(models.Hospital.code == code)) == 0:
+            return code
+    raise HTTPException(status_code=503, detail="Could not generate a unique hospital code; please try again")
 
 
 def _hospital_fleet(db: Session, hospital_id: int):
@@ -750,6 +771,7 @@ def optimize(
     ),
     hospital=Depends(require_admin),
     db: Session = Depends(get_db),
+    hospital_code: Optional[str] = _hospital_code_header(),
 ):
     if "error" in data:
         raise HTTPException(status_code=503, detail=data["error"])
@@ -850,6 +872,7 @@ def list_runs(
     limit: int = Query(10, ge=1, le=50),
     hospital=Depends(require_admin),
     db: Session = Depends(get_db),
+    hospital_code: Optional[str] = _hospital_code_header(),
 ):
     _check_hospital_id(hospital, hospital_id)
     try:
