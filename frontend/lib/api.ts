@@ -1,5 +1,65 @@
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000').replace(/\/$/, '')
 
+// The hospital code from registration, remembered per browser and sent as X-Hospital-Code so the
+// backend serves this hospital rather than the newest one. Storage can be unavailable (private mode,
+// blocked site data), so every access is guarded; without a code the backend uses the newest hospital.
+const HOSPITAL_CODE_KEY = 'hospital_code'
+const HOSPITAL_CODE_HEADER = 'X-Hospital-Code'
+const CODE_NOT_FOUND_DETAIL = 'Hospital code not found'
+
+/** Fired on window when the stored code turned out to be stale and was cleared. */
+export const HOSPITAL_CODE_INVALID_EVENT = 'hospital-code-invalid'
+export const STALE_CODE_MESSAGE = "Your saved hospital code wasn't found and has been cleared. Reload the page to continue."
+
+export function getStoredHospitalCode(): string | null {
+  try {
+    return localStorage.getItem(HOSPITAL_CODE_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function saveHospitalCode(code: string) {
+  try {
+    localStorage.setItem(HOSPITAL_CODE_KEY, code)
+  } catch {
+    // Without storage the dashboard falls back to the newest hospital.
+  }
+}
+
+export function clearHospitalCode() {
+  try {
+    localStorage.removeItem(HOSPITAL_CODE_KEY)
+  } catch {
+    // Ignore: see saveHospitalCode.
+  }
+}
+
+/**
+ * fetch() against the backend, adding X-Hospital-Code when a code is stored. A 404 "Hospital code not
+ * found" means the stored code is stale: it is cleared, HOSPITAL_CODE_INVALID_EVENT fires and an
+ * ApiError with STALE_CODE_MESSAGE is thrown, so no caller mistakes it for "no hospital registered".
+ */
+export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const code = getStoredHospitalCode()
+  const headers = new Headers(init.headers)
+  if (code) headers.set(HOSPITAL_CODE_HEADER, code)
+  const res = await fetch(`${API_URL}${path}`, { ...init, headers })
+  if (code && res.status === 404) {
+    const detail = await res
+      .clone()
+      .json()
+      .then((body) => body?.detail)
+      .catch(() => undefined)
+    if (detail === CODE_NOT_FOUND_DETAIL) {
+      clearHospitalCode()
+      window.dispatchEvent(new Event(HOSPITAL_CODE_INVALID_EVENT))
+      throw new ApiError(STALE_CODE_MESSAGE)
+    }
+  }
+  return res
+}
+
 export type OptimizedPosition = {
   candidate_id: string
   name: string | null
@@ -40,6 +100,8 @@ export type AmbulanceStatus = 'available' | 'responding' | 'at_hospital' | 'unav
 
 export type Hospital = {
   hospital_id: number
+  /** Short code drivers enter in the app, e.g. "PAREL-4821". */
+  code: string
   name: string
   lat: number
   lng: number
@@ -50,7 +112,7 @@ export type Hospital = {
 
 /** The active (most recently registered) hospital, or null if none is registered. Throws ApiError on other server errors. */
 export async function getHospital(signal?: AbortSignal): Promise<Hospital | null> {
-  const res = await fetch(`${API_URL}/hospital`, { signal })
+  const res = await apiFetch('/hospital', { signal })
   if (res.status === 404) return null
   if (!res.ok) throw new ApiError(await readErrorMessage(res, 'Loading the hospital failed'))
   return res.json()
@@ -80,13 +142,13 @@ export type FleetAmbulance = {
 
 /** Live status of the active hospital's ambulances. Throws ApiError on a server error. */
 export async function getFleet(signal?: AbortSignal): Promise<FleetAmbulance[]> {
-  const res = await fetch(`${API_URL}/fleet`, { signal })
+  const res = await apiFetch('/fleet', { signal })
   if (!res.ok) throw new ApiError(await readErrorMessage(res, 'Loading the fleet failed'))
   return res.json()
 }
 
 async function sendJson<T>(method: 'POST' | 'PATCH', path: string, body: unknown, fallback: string): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await apiFetch(path, {
     method,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -176,14 +238,14 @@ export type RunDetail = RunSummary & {
 
 /** The hospital's most recent runs, newest first. Throws ApiError on a server error. */
 export async function getRuns(hospitalId: number, limit = 10, signal?: AbortSignal): Promise<RunSummary[]> {
-  const res = await fetch(`${API_URL}/runs?hospital_id=${hospitalId}&limit=${limit}`, { signal })
+  const res = await apiFetch(`/runs?hospital_id=${hospitalId}&limit=${limit}`, { signal })
   if (!res.ok) throw new ApiError(await readErrorMessage(res, 'Loading recent runs failed'))
   return res.json()
 }
 
 /** One saved run of the active hospital. Throws ApiError (404 if it isn't that hospital's). */
 export async function getRun(runId: number): Promise<RunDetail> {
-  const res = await fetch(`${API_URL}/runs/${runId}`)
+  const res = await apiFetch(`/runs/${runId}`)
   if (!res.ok) throw new ApiError(await readErrorMessage(res, 'Loading the run failed'))
   return res.json()
 }
@@ -195,7 +257,7 @@ export type DemandScore = {
 
 /** One entry per ward for that hour. Throws ApiError on a server error; pass `signal` to cancel. */
 export async function getDemandScores(hour: number, signal?: AbortSignal): Promise<DemandScore[]> {
-  const res = await fetch(`${API_URL}/demand-scores?hour=${hour}`, { signal })
+  const res = await apiFetch(`/demand-scores?hour=${hour}`, { signal })
   if (!res.ok) throw new ApiError(await readErrorMessage(res, 'Loading demand scores failed'))
   return res.json()
 }
@@ -211,6 +273,8 @@ export type HospitalRegistration = {
 export type RegisterHospitalResponse = {
   status: 'registered'
   hospital_id: number
+  /** Short code drivers enter in the app; also identifies this hospital to the API. */
+  code: string
   fleet_size: number
 }
 
@@ -219,7 +283,7 @@ export class ApiError extends Error {}
 
 /** Throws ApiError when the server rejects the request, or TypeError when it can't be reached. */
 export async function registerHospital(registration: HospitalRegistration): Promise<RegisterHospitalResponse> {
-  const res = await fetch(`${API_URL}/hospital/register`, {
+  const res = await apiFetch('/hospital/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(registration),
