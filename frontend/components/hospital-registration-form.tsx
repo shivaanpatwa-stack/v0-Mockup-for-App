@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
 import type { LatLng, ViewTarget } from './location-picker-map'
 import CopyCode from './copy-code'
-import { API_URL, ApiError, registerHospital, saveHospitalCode, type RegisterHospitalResponse } from '@/lib/api'
+import { API_URL, ApiError, registerHospital, saveAdminKey, saveHospitalCode, type RegisterHospitalResponse } from '@/lib/api'
 
 const LocationPickerMap = dynamic(() => import('./location-picker-map'), {
   ssr: false,
@@ -133,6 +133,7 @@ export default function HospitalRegistrationForm() {
       })
       // Sent as X-Hospital-Code from now on, so the dashboard shows this hospital.
       saveHospitalCode(body.code)
+      saveAdminKey(body.admin_key)
       setRegistration(body)
     } catch (err) {
       setSubmitError(

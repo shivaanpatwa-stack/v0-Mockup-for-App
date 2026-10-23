@@ -5,6 +5,8 @@ export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:800
 // blocked site data), so every access is guarded; without a code the backend uses the newest hospital.
 const HOSPITAL_CODE_KEY = 'hospital_code'
 const HOSPITAL_CODE_HEADER = 'X-Hospital-Code'
+const ADMIN_KEY_KEY = 'admin_key'
+const ADMIN_KEY_HEADER = 'X-Admin-Key'
 const CODE_NOT_FOUND_DETAIL = 'Hospital code not found'
 
 /** Fired on window when the stored code turned out to be stale and was cleared. */
@@ -35,6 +37,26 @@ export function clearHospitalCode() {
   }
 }
 
+export function getStoredAdminKey(): string | null {
+  try {
+    return localStorage.getItem(ADMIN_KEY_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function saveAdminKey(key: string) {
+  try {
+    localStorage.setItem(ADMIN_KEY_KEY, key)
+  } catch {}
+}
+
+export function clearAdminKey() {
+  try {
+    localStorage.removeItem(ADMIN_KEY_KEY)
+  } catch {}
+}
+
 /**
  * fetch() against the backend, adding X-Hospital-Code when a code is stored. A 404 "Hospital code not
  * found" means the stored code is stale: it is cleared, HOSPITAL_CODE_INVALID_EVENT fires and an
@@ -42,8 +64,10 @@ export function clearHospitalCode() {
  */
 export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const code = getStoredHospitalCode()
+  const adminKey = getStoredAdminKey()
   const headers = new Headers(init.headers)
   if (code) headers.set(HOSPITAL_CODE_HEADER, code)
+  if (adminKey) headers.set(ADMIN_KEY_HEADER, adminKey)
   const res = await fetch(`${API_URL}${path}`, { ...init, headers })
   if (code && res.status === 404) {
     const detail = await res
@@ -275,6 +299,8 @@ export type RegisterHospitalResponse = {
   hospital_id: number
   /** Short code drivers enter in the app; also identifies this hospital to the API. */
   code: string
+  /** Admin key returned once at registration; must be stored and sent as X-Admin-Key. */
+  admin_key: string
   fleet_size: number
 }
 
