@@ -27,6 +27,7 @@ import {
 } from '@/lib/api'
 import CopyCode from '@/components/copy-code'
 import EditFleetDialog from '@/components/edit-fleet-dialog'
+import MapLegend from '@/components/map-legend'
 import WhatIfPanel from '@/components/what-if-panel'
 
 const MumbaiMap = dynamic(() => import('@/components/mumbai-map'), {
@@ -328,6 +329,8 @@ export default function Page() {
   }
 
   const lastSucceeded = recentRuns?.find((r) => r.status === 'succeeded')
+  // The hour whose ward demand the map shows: a past run's or simulation's hour, else the slider's.
+  const mapHour = viewing ? viewing.target_hour : simulation ? simulation.parameters.hour : hour
   const fleetRows = buildFleetRows(fleet, run)
   const realRows = fleet !== null || run !== null
 
@@ -376,7 +379,7 @@ export default function Page() {
         />
       )}
       <section className="content-grid">
-        <div className="map-card"><div className="map-heading"><div><p className="eyebrow">Mumbai operations map</p><h2>Demand by administrative ward</h2></div><span className="map-date">{lastSucceeded ? `Last calculated: ${formatIST(lastSucceeded.created_at)}` : recentRuns ? 'Not calculated yet' : ''}</span></div><div className="map"><MumbaiMap hour={viewing ? viewing.target_hour : simulation ? simulation.parameters.hour : hour} hospital={hospital} assignments={viewing ? pastRunMarkers(viewing) : simulation ? simulation.assignments : run?.assignments} simulated={!viewing && simulation !== null} simulatedRadiusKm={viewing ? null : simulation?.parameters.operating_radius_km} /><div className="legend"><span><i className="legend-dot high" /> High demand</span><span><i className="legend-dot medium" /> Medium</span><span><i className="legend-dot low" /> Low</span></div></div></div>
+        <div className="map-card"><div className="map-heading"><div><p className="eyebrow">Mumbai operations map</p><h2>Demand by administrative ward</h2></div><span className="map-date">{lastSucceeded ? `Last calculated: ${formatIST(lastSucceeded.created_at)}` : recentRuns ? 'Not calculated yet' : ''}</span></div><div className="map"><MumbaiMap hour={mapHour} hospital={hospital} assignments={viewing ? pastRunMarkers(viewing) : simulation ? simulation.assignments : run?.assignments} simulated={!viewing && simulation !== null} simulatedRadiusKm={viewing ? null : simulation?.parameters.operating_radius_km} /><MapLegend hourLabel={formatHour(mapHour)} showSimulated={!viewing && simulation !== null} /></div></div>
         <aside className="stats-column">{run ? <OptimizationStats run={run} previous={previousRun} /> : <><div className="stat-card"><span>Current average response time</span><strong>14.2 <small>min</small></strong><em>Baseline</em></div><div className="stat-card optimized"><span>Optimized average response time</span><strong>9.1 <small>min</small></strong><em>↓ 36% faster</em></div><div className="comparison"><p>Optimization impact</p><div><span>Reachable within 10 min</span><strong>48% <b>→</b> 71%</strong></div><div><span>Worst high-risk ward</span><strong>18 min <b>→</b> 8 min</strong></div></div></>}</aside>
       </section>
       <section className="fleet-section"><div className="section-heading"><div><p className="eyebrow">Fleet overview</p><h2>Ambulance fleet</h2></div><div className="section-actions"><span>{fleet ? fleet.length : run ? run.assignments.length : hospital?.fleet_size ?? '—'} units modeled · {day}</span>{hospital && <button type="button" className="back-to-live" onClick={() => setEditOpen(true)}>Edit fleet</button>}</div></div><div className="table-wrap"><table><thead><tr>{['Ambulance ID', realRows ? 'Ward' : 'Current zone','Recommended position','ETA / response','Type','Status'].map((head) => <th key={head}>{head}</th>)}</tr></thead><tbody>{fleetRows.map((row) => <tr key={row.id}><td><strong>{row.id}</strong></td><td>{row.zone}</td><td>{row.position}</td><td>{row.eta}</td><td>{row.type}</td><td>{row.status ? <span className={`badge ${row.status.replace('_', '-')}`}>{STATUS_LABEL[row.status]}</span> : '—'}{row.assignmentStatus && <span className="assignment-status">{ASSIGNMENT_LABEL[row.assignmentStatus]}</span>}</td></tr>)}</tbody></table></div></section>
