@@ -3,7 +3,7 @@ import { useCallback, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { ProfileButton } from '@/components/app-header'
-import { ErrorNotice } from '@/components/notice-banner'
+import { ErrorNotice, RateLimitNotice } from '@/components/notice-banner'
 import { EmptyState, LoadingState } from '@/components/states'
 import { Button, StatusBadge, TypeBadge } from '@/components/ui'
 import { colors } from '@/constants'
@@ -13,7 +13,7 @@ import { useFleet } from '@/state/fleet'
 export default function SelectUnitScreen() {
   const router = useRouter()
   const insets = useSafeAreaInsets()
-  const { ready, hospitalCode, hospitalName, fleet, fleetLoaded, error, refresh, selectUnit, changeHospital } = useFleet()
+  const { ready, hospitalCode, hospitalName, fleet, fleetLoaded, error, rateLimitUntil, refresh, selectUnit, changeHospital } = useFleet()
   const [picked, setPicked] = useState<string | null>(null)
   const [retrying, setRetrying] = useState(false)
 
@@ -62,6 +62,7 @@ export default function SelectUnitScreen() {
         </View>
         <Text style={styles.subtitle}>Choose the ambulance you're driving today</Text>
 
+        <RateLimitNotice until={rateLimitUntil} />
         {error && <ErrorNotice error={error} stale={fleetLoaded} onRetry={onRetry} retrying={retrying} />}
 
         {!fleetLoaded && !error ? (

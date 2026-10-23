@@ -1,12 +1,12 @@
 import { Redirect } from 'expo-router'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { ErrorNotice, NoticeBanner } from '@/components/notice-banner'
 import { LoadingState } from '@/components/states'
 import { Button, Card } from '@/components/ui'
 import { colors } from '@/constants'
-import { getHospital, isCodeNotFound, isNetworkError, describeError } from '@/lib/api'
+import { describeError, getHospital, isAuthError, isNetworkError, isRateLimitError, RATE_LIMIT_MESSAGE } from '@/lib/api'
 import type { AppError, Hospital } from '@/lib/api'
 import { useFleet } from '@/state/fleet'
 
@@ -15,13 +15,24 @@ const CODE_PATTERN = /^[A-Z0-9][A-Z0-9-]{2,39}$/
 
 export default function EnterCodeScreen() {
   const insets = useSafeAreaInsets()
-  const { ready, hospitalCode, unitId, notice, clearNotice, connect } = useFleet()
+  const { ready, hospitalCode, unitId, notice, rateLimitUntil, clearNotice, connect } = useFleet()
   const [code, setCode] = useState('')
   const [checking, setChecking] = useState(false)
   const [found, setFound] = useState<Hospital | null>(null)
   const [inlineError, setInlineError] = useState<string | null>(null)
   const [networkError, setNetworkError] = useState<AppError | null>(null)
   const [saving, setSaving] = useState(false)
+
+  // After a 429 the Connect button stays disabled and counts down to when the server will talk to us again.
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!rateLimitUntil) return
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [rateLimitUntil])
+  const secondsLeft = rateLimitUntil ? Math.max(0, Math.ceil((rateLimitUntil - now) / 1000)) : 0
+  const locked = secondsLeft > 0
 
   if (!ready) return <LoadingState label="Loading…" />
   // Connected (just now, or on a previous launch): carry on to the next step.
@@ -30,7 +41,7 @@ export default function EnterCodeScreen() {
   const trimmed = code.trim().toUpperCase()
 
   async function onConnect() {
-    if (checking) return
+    if (checking || locked) return
     clearNotice()
     setInlineError(null)
     setNetworkError(null)
@@ -42,8 +53,10 @@ export default function EnterCodeScreen() {
     try {
       setFound(await getHospital(trimmed))
     } catch (err) {
-      if (isCodeNotFound(err)) setInlineError('Code not found. Check with your dispatcher.')
-      else if (isNetworkError(err)) setNetworkError(describeError(err))
+      if (isAuthError(err)) setInlineError('Code not found. Check with your dispatcher.')
+      else if (isRateLimitError(err)) {
+        // The lockout banner and the countdown come from the session state.
+      } else if (isNetworkError(err)) setNetworkError(describeError(err))
       else setInlineError(describeError(err).message)
     } finally {
       setChecking(false)
@@ -82,6 +95,7 @@ export default function EnterCodeScreen() {
             <Text style={styles.title}>Enter hospital code</Text>
             <Text style={styles.muted}>Your dispatcher can give you the code for your hospital.</Text>
 
+            {locked && <NoticeBanner tone="warning" message={RATE_LIMIT_MESSAGE} />}
             {notice && <NoticeBanner tone="error" message={notice} onDismiss={clearNotice} />}
             {networkError && <ErrorNotice error={networkError} onRetry={onConnect} retrying={checking} />}
 
@@ -111,7 +125,12 @@ export default function EnterCodeScreen() {
                 </Text>
               )}
             </View>
-            <Button label="Connect" busy={checking} disabled={!trimmed} onPress={onConnect} />
+            <Button
+              label={locked ? `Try again in ${Math.floor(secondsLeft / 60)}:${String(secondsLeft % 60).padStart(2, '0')}` : 'Connect'}
+              busy={checking}
+              disabled={!trimmed || locked}
+              onPress={onConnect}
+            />
           </>
         )}
       </ScrollView>
