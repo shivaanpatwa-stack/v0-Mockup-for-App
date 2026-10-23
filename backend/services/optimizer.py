@@ -2,6 +2,7 @@
 
 import numpy as np
 import pandas as pd
+# pyrefly: ignore[missing-import]
 from ortools.linear_solver import pywraplp
 
 EARTH_RADIUS_KM = 6371.0088
@@ -140,7 +141,7 @@ def optimize_ambulance_positions(
     lats, lons = _lat_lon(candidates_df)
 
     too_close: list[tuple[int, int]] = []
-    if min_spacing_km > 0:
+    if min_spacing_km > 0 and num_ambulances > 1:
         distances = _pairwise_haversine_km(lats, lons)
         too_close = list(zip(*np.where(np.triu(distances < min_spacing_km, k=1))))
 
