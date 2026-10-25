@@ -83,12 +83,24 @@ class Hospital(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
     # Driver code, sent as X-Hospital-Code, e.g. "PAREL-7K3QMZ". Uppercase; kept when the name changes.
     code: Mapped[str] = mapped_column(Text, nullable=False, unique=True, index=True)
-    # Dashboard key, sent as X-Admin-Key together with the code for admin endpoints. Never shown to drivers.
-    admin_key: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    # HMAC-SHA256(KEY_PEPPER, admin key) as hex; the key itself is never stored (see credentials.py).
+    # Empty until scripts/backfill_keys.py has run for hospitals registered before hashing.
+    admin_key_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     ambulances: Mapped[List["Ambulance"]] = relationship(back_populates="hospital")
     drivers: Mapped[List["Driver"]] = relationship(back_populates="hospital")
     optimization_runs: Mapped[List["OptimizationRun"]] = relationship(back_populates="hospital")
+
+
+class AuthFailure(Base):
+    """One rate-limited event per row: a failed credential check ("auth_fail") or a registration."""
+
+    __tablename__ = "auth_failures"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    client_ip: Mapped[str] = mapped_column(Text, nullable=False)
+    kind: Mapped[str] = mapped_column(Text, nullable=False, default="auth_fail")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
 
 class Ambulance(Base):

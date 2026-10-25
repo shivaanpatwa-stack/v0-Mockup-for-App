@@ -39,7 +39,8 @@ export type FleetUnit = {
 export type DemandScore = { ward_code: string; risk_score: number }
 
 export const HOSPITAL_CODE_HEADER = 'X-Hospital-Code'
-export const HOSPITAL_CODE_NOT_FOUND = 'Hospital code not found'
+// The backend answers 401 with this detail for a missing or unknown code.
+export const HOSPITAL_CODE_NOT_FOUND = 'Invalid hospital code'
 const TIMEOUT_MS = 8_000
 
 /** The request never got an answer: no connection, DNS/TLS failure, or the 8 s timeout. */
@@ -67,7 +68,7 @@ export class ApiHttpError extends Error {
 export const isNetworkError = (err: unknown): err is ApiNetworkError => err instanceof ApiNetworkError
 
 export const isCodeNotFound = (err: unknown): boolean =>
-  err instanceof ApiHttpError && err.status === 404 && err.detail === HOSPITAL_CODE_NOT_FOUND
+  err instanceof ApiHttpError && err.status === 401 && err.detail === HOSPITAL_CODE_NOT_FOUND
 
 /** What the UI needs from an error: which banner to show and what it says. */
 export type AppError = { kind: 'network' | 'http'; message: string }
