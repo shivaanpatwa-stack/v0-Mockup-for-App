@@ -2,11 +2,12 @@
 
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent, KeyboardEvent } from 'react'
 import type { LatLng, ViewTarget } from './location-picker-map'
 import CopyCode from './copy-code'
-import { API_URL, ApiError, registerHospital, saveAdminKey, saveHospitalCode, type RegisterHospitalResponse } from '@/lib/api'
+import { ApiError, getStoredHospitalName, registerHospital, signIn, type RegisterHospitalResponse } from '@/lib/api'
 
 const LocationPickerMap = dynamic(() => import('./location-picker-map'), {
   ssr: false,
@@ -26,7 +27,14 @@ type AmbulanceRow = { key: number; id: string; type: AmbulanceType }
 // Nominatim's boundingbox is [south, north, west, east] as strings.
 type NominatimResult = { boundingbox: [string, string, string, string] }
 
-export default function HospitalRegistrationForm() {
+export default function HospitalRegistrationForm({ hasSession }: { hasSession: boolean }) {
+  const router = useRouter()
+  // Signed in already: confirm before registering, since finishing switches this browser to the new hospital.
+  const [confirmedSwitch, setConfirmedSwitch] = useState(!hasSession)
+  const [currentName, setCurrentName] = useState<string | null>(null)
+  const [savedKeys, setSavedKeys] = useState(false)
+  const [finishing, setFinishing] = useState(false)
+  const [finishError, setFinishError] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [radius, setRadius] = useState('15')
   const [ambulances, setAmbulances] = useState<AmbulanceRow[]>([{ key: 0, id: '', type: 'ALS' }])
@@ -63,6 +71,7 @@ export default function HospitalRegistrationForm() {
     !registered
 
   useEffect(() => () => searchAbort.current?.abort(), [])
+  useEffect(() => setCurrentName(getStoredHospitalName()), [])
 
   function updateAmbulance(key: number, patch: Partial<Omit<AmbulanceRow, 'key'>>) {
     setAmbulances((rows) => rows.map((row) => (row.key === key ? { ...row, ...patch } : row)))
@@ -131,17 +140,90 @@ export default function HospitalRegistrationForm() {
         operating_radius_km: radiusKm,
         ambulances: ambulances.map((a) => ({ id: a.id.trim(), type: a.type })),
       })
-      // Sent as X-Hospital-Code from now on, so the dashboard shows this hospital.
-      saveHospitalCode(body.code)
-      saveAdminKey(body.admin_key)
+      // Kept only in component state until the user confirms they've saved it.
       setRegistration(body)
     } catch (err) {
-      setSubmitError(
-        err instanceof ApiError ? err.message : `Couldn't reach the server at ${API_URL}. Is the backend running?`,
-      )
+      setSubmitError(err instanceof ApiError ? err.message : "Can't reach the server. Check your connection and try again.")
     } finally {
       setSubmitting(false)
     }
+  }
+
+  async function goToDashboard() {
+    if (!registration || !savedKeys) return
+    setFinishing(true)
+    setFinishError(null)
+    try {
+      const result = await signIn(registration.code, registration.admin_key)
+      if (!result.ok) {
+        setFinishError(
+          result.status === 429
+            ? 'Too many attempts. Try again in a few minutes.'
+            : 'Signing in failed. Use the code and key you saved on the start page.',
+        )
+        return
+      }
+      // The key is only in the httpOnly session cookie from here on.
+      setRegistration({ ...registration, admin_key: '' })
+      router.replace('/')
+    } catch {
+      setFinishError("Can't reach the server. Check your connection and try again.")
+    } finally {
+      setFinishing(false)
+    }
+  }
+
+  if (!confirmedSwitch) {
+    return (
+      <section className="reg-card reg-switch">
+        <h2>You&apos;re already signed in{currentName ? ` to ${currentName}` : ''}</h2>
+        <p className="reg-hint">
+          Registering creates a new hospital and switches this browser to it. Make sure you have the current
+          hospital&apos;s code and dashboard key saved if you&apos;ll need it again.
+        </p>
+        <div className="reg-switch-actions">
+          <button type="button" className="reg-submit" onClick={() => setConfirmedSwitch(true)}>
+            Register a new hospital
+          </button>
+          <Link href="/" className="reg-secondary">
+            Back to dashboard
+          </Link>
+        </div>
+      </section>
+    )
+  }
+
+  if (registration) {
+    return (
+      <section className="reg-card reg-keys" aria-labelledby="save-keys-title">
+        <h2 id="save-keys-title">Save your keys</h2>
+        <p className="reg-hint">
+          {registration.fleet_size} {registration.fleet_size === 1 ? 'ambulance' : 'ambulances'} added. These are shown{' '}
+          <strong>only once</strong>. Store them somewhere safe, such as a password manager.
+        </p>
+        <div className="reg-key-row">
+          <CopyCode code={registration.code} label="Driver code" />
+          <p className="reg-hint">Drivers enter this in the app.</p>
+        </div>
+        {registration.admin_key && (
+          <div className="reg-key-row">
+            <CopyCode code={registration.admin_key} label="Dashboard key" className="reg-dashboard-key" />
+            <p className="reg-hint">Needed to sign in to this dashboard. Keep it private.</p>
+          </div>
+        )}
+        <label className="reg-confirm">
+          <input type="checkbox" checked={savedKeys} onChange={(e) => setSavedKeys(e.target.checked)} />I have saved these
+        </label>
+        {finishError && (
+          <p className="reg-error" role="alert">
+            {finishError}
+          </p>
+        )}
+        <button type="button" className="reg-submit" onClick={goToDashboard} disabled={!savedKeys || finishing}>
+          {finishing ? 'Signing in…' : 'Go to dashboard'}
+        </button>
+      </section>
+    )
   }
 
   return (
@@ -272,19 +354,6 @@ export default function HospitalRegistrationForm() {
           {submitError}
         </p>
       )}
-      {registration && (
-        <div className="reg-success reg-complete" role="status">
-          <p>
-            <strong>Registration complete.</strong> Your driver code is <strong className="reg-code">{registration.code}</strong>
-          </p>
-          <CopyCode code={registration.code} />
-          <p className="reg-note">
-            Drivers enter this code in the app. {registration.fleet_size} {registration.fleet_size === 1 ? 'ambulance' : 'ambulances'} added to your fleet.
-          </p>
-          <Link href="/" className="reg-dashboard-link">Go to dashboard</Link>
-        </div>
-      )}
-
       <button type="submit" className="reg-submit" disabled={!canSubmit}>
         {submitting ? 'Registering…' : 'Register Hospital'}
       </button>

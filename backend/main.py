@@ -5,11 +5,10 @@ Run from inside the backend/ folder:
 """
 
 import hmac
+import ipaddress
 import logging
-import threading
-import time as clock
-from collections import defaultdict, deque
-import secrets
+import os
+import random
 from contextlib import asynccontextmanager
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -21,15 +20,23 @@ import pandas as pd
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 # Imported as a module: main.py already has a pydantic class named Ambulance.
 import models
-from credentials import CredentialGenerationError, generate_admin_key, generate_hospital_code, normalise_code
+from credentials import (
+    CredentialGenerationError,
+    admin_key_matches,
+    generate_admin_key,
+    generate_hospital_code,
+    normalise_code,
+    require_pepper,
+)
 from database import get_db
 from services.assignment import CAPABILITY, assign_ambulances_to_positions
+from services.kpis import compute_kpis, haversine_km
 from services.optimizer import filter_candidates_by_radius, optimize_ambulance_positions
 from services.weighting import calculate_weighted_scores
 
@@ -97,6 +104,8 @@ def load_data() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Admin keys are checked against HMAC(KEY_PEPPER, key): refuse to start without the pepper.
+    require_pepper()
     load_data()
     if "error" in data:
         print(f"WARNING: {data['error']}")
@@ -105,12 +114,19 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Ambulance Placement Optimizer", lifespan=lifespan)
 
+HOSPITAL_CODE_HEADER = "X-Hospital-Code"
+ADMIN_KEY_HEADER = "X-Admin-Key"
+PROXY_SECRET_HEADER = "X-Proxy-Secret"
+CLIENT_IP_HEADER = "X-Client-IP"
+
+ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["Content-Type", "X-Hospital-Code", "X-Admin-Key"],
+    allow_headers=["Content-Type", HOSPITAL_CODE_HEADER, ADMIN_KEY_HEADER, PROXY_SECRET_HEADER, CLIENT_IP_HEADER],
     # Lets the browser read how long to wait after a 429.
     expose_headers=["Retry-After"],
 )
@@ -124,58 +140,114 @@ def _clean(value):
 
 
 def _db_unavailable(exc: SQLAlchemyError) -> HTTPException:
-    # Only the driver's first line: enough to diagnose, never the connection URL.
+    # Only the driver's first line: enough to diagnose, never the connection URL or any values.
     reason = str(getattr(exc, "orig", exc)).strip().splitlines()[0]
     return HTTPException(status_code=503, detail=f"Database unreachable: {reason}")
 
 
-HOSPITAL_CODE_HEADER = "X-Hospital-Code"
-ADMIN_KEY_HEADER = "X-Admin-Key"
+# ---- Client IP ----
+# Behind a proxy every request arrives from the proxy's address, so the real client must come from a
+# header -- but only one this server can trust:
+#  1. PROXY_SHARED_SECRET set and X-Proxy-Secret matches: use X-Client-IP (set by your proxy).
+#  2. TRUSTED_PROXY_HOPS > 0: count that many entries from the RIGHT of X-Forwarded-For. Entries to
+#     the left were written by the client and can be forged, so the leftmost is never used.
+#  3. Otherwise the direct connection's address.
+PROXY_SHARED_SECRET = os.getenv("PROXY_SHARED_SECRET", "")
+TRUSTED_PROXY_HOPS = max(0, int(os.getenv("TRUSTED_PROXY_HOPS", "0") or 0))
 
-# ---- Brute-force protection for hospital codes and admin keys ----
-# After AUTH_MAX_FAILURES failed code lookups or admin-key checks from one IP within
-# AUTH_WINDOW_SECONDS, every hospital-scoped request from that IP gets 429 until the oldest of
-# those failures leaves the window. Successful requests are never counted.
-# Kept in memory per process: it resets when the server restarts and isn't shared between workers.
-# It keys on the direct client IP; behind a proxy or load balancer all clients share the proxy's
-# IP, so the real client IP must first be taken from X-Forwarded-For (trusting only your proxy).
+
+def _valid_ip(value: str | None) -> Optional[str]:
+    try:
+        return str(ipaddress.ip_address((value or "").strip()))
+    except ValueError:
+        return None
+
+
+def get_client_ip(request: Request) -> str:
+    direct = request.client.host if request.client else "unknown"
+    if PROXY_SHARED_SECRET:
+        presented = request.headers.get(PROXY_SECRET_HEADER, "")
+        if presented and hmac.compare_digest(presented.encode(), PROXY_SHARED_SECRET.encode()):
+            ip = _valid_ip(request.headers.get(CLIENT_IP_HEADER))
+            if ip:
+                return ip
+    if TRUSTED_PROXY_HOPS > 0:
+        hops = [h.strip() for h in request.headers.get("x-forwarded-for", "").split(",") if h.strip()]
+        if len(hops) >= TRUSTED_PROXY_HOPS:
+            ip = _valid_ip(hops[-TRUSTED_PROXY_HOPS])
+            if ip:
+                return ip
+    return direct
+
+
+# ---- Abuse protection (stored in the auth_failures table, so it survives restarts and is shared
+# between server processes) ----
+# kind "auth_fail": one row per failed credential check (a wrong code or a wrong admin key). At
+#   AUTH_MAX_FAILURES within AUTH_WINDOW, every hospital-scoped request from that IP gets 429 before
+#   its credentials are even looked at. A request with no credentials at all is rejected but not
+#   counted: nothing was guessed, and counting it would lock out a client that simply has no code yet.
+# kind "register": POST /hospital/register is limited to REGISTER_MAX per REGISTER_WINDOW per IP.
+AUTH_FAIL = "auth_fail"
+REGISTER = "register"
 AUTH_MAX_FAILURES = 10
-AUTH_WINDOW_SECONDS = 10 * 60
+AUTH_WINDOW = timedelta(minutes=10)
+REGISTER_MAX = 5
+REGISTER_WINDOW = timedelta(hours=1)
+PURGE_PROBABILITY = 0.01
+PURGE_OLDER_THAN = timedelta(days=1)
 TOO_MANY_ATTEMPTS = "Too many attempts, try again later."
-
-_auth_failures: dict[str, deque] = defaultdict(deque)
-_auth_lock = threading.Lock()
-
-
-def _client_ip(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
+INVALID_CODE = "Invalid hospital code"
+INVALID_CREDENTIALS = "Invalid credentials"
 
 
-def _recent_failures(ip: str, now: float) -> deque:
-    """The IP's failure times inside the window (older ones dropped). Call with _auth_lock held."""
-    failures = _auth_failures[ip]
-    while failures and failures[0] <= now - AUTH_WINDOW_SECONDS:
-        failures.popleft()
-    return failures
+def _maybe_purge(db: Session) -> None:
+    """About 1 request in 100 deletes rows nobody counts any more."""
+    if random.random() < PURGE_PROBABILITY:
+        db.execute(delete(models.AuthFailure).where(models.AuthFailure.created_at < func.now() - PURGE_OLDER_THAN))
+        db.commit()
 
 
-def _reject_if_locked_out(ip: str) -> None:
-    now = clock.monotonic()
-    with _auth_lock:
-        failures = _recent_failures(ip, now)
-        if len(failures) < AUTH_MAX_FAILURES:
-            if not failures:
-                _auth_failures.pop(ip, None)
-            return
-        # Unlocked once enough failures expire to drop below the limit.
-        retry_after = failures[len(failures) - AUTH_MAX_FAILURES] + AUTH_WINDOW_SECONDS - now
-    raise HTTPException(status_code=429, detail=TOO_MANY_ATTEMPTS, headers={"Retry-After": str(max(1, int(retry_after) + 1))})
+def _enforce_limit(db: Session, ip: str, kind: str, limit: int, window: timedelta) -> None:
+    """429 with Retry-After if this IP already has `limit` rows of `kind` inside `window`."""
+    F = models.AuthFailure
+    recent = db.scalars(
+        select(F.created_at)
+        .where(F.client_ip == ip, F.kind == kind, F.created_at > func.now() - window)
+        .order_by(F.created_at.desc())
+        .limit(limit)
+    ).all()
+    if len(recent) < limit:
+        return
+    # Unblocked once the oldest of the `limit` most recent rows leaves the window.
+    now = db.scalar(select(func.now()))
+    retry_after = max(1, int((recent[-1] + window - now).total_seconds()) + 1)
+    raise HTTPException(status_code=429, detail=TOO_MANY_ATTEMPTS, headers={"Retry-After": str(retry_after)})
 
 
-def _record_auth_failure(ip: str) -> None:
-    now = clock.monotonic()
-    with _auth_lock:
-        _recent_failures(ip, now).append(now)
+def _record(db: Session, ip: str, kind: str) -> None:
+    db.add(models.AuthFailure(client_ip=ip, kind=kind))
+    db.commit()
+
+
+def _guarded(db: Session, ip: str) -> None:
+    try:
+        _maybe_purge(db)
+        _enforce_limit(db, ip, AUTH_FAIL, AUTH_MAX_FAILURES, AUTH_WINDOW)
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise _db_unavailable(exc)
+
+
+def _fail(db: Session, ip: str, status_code: int, detail: str) -> HTTPException:
+    try:
+        _record(db, ip, AUTH_FAIL)
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("Could not record a failed credential check")
+    return HTTPException(status_code=status_code, detail=detail)
+
+
+# ---- Authorisation: the ONLY way an endpoint gets a hospital ----
 
 
 def get_hospital(
@@ -183,42 +255,35 @@ def get_hospital(
     db: Session = Depends(get_db),
     hospital_code: Optional[str] = Header(None, alias=HOSPITAL_CODE_HEADER),
 ):
-    """Driver level: the hospital named by X-Hospital-Code. There is no fallback to any other hospital."""
-    ip = _client_ip(request)
-    _reject_if_locked_out(ip)
+    """Driver level: the hospital whose code is in X-Hospital-Code. Missing and unknown codes get the
+    same 401, so the response never reveals whether a code exists."""
+    ip = get_client_ip(request)
+    _guarded(db, ip)
     code = normalise_code(hospital_code)
     if not code:
-        raise HTTPException(status_code=401, detail="Hospital code required")
+        raise HTTPException(status_code=401, detail=INVALID_CODE)
     try:
         hospital = db.scalars(select(models.Hospital).where(models.Hospital.code == code)).first()
     except SQLAlchemyError as exc:
         raise _db_unavailable(exc)
     if hospital is None:
-        _record_auth_failure(ip)
-        raise HTTPException(status_code=404, detail="Hospital code not found")
+        raise _fail(db, ip, 401, INVALID_CODE)
     return hospital
 
 
 def require_admin(
     request: Request,
     hospital=Depends(get_hospital),
+    db: Session = Depends(get_db),
     admin_key: Optional[str] = Header(None, alias=ADMIN_KEY_HEADER),
 ):
-    """Admin level: a valid hospital code plus that hospital's X-Admin-Key."""
+    """Admin level: a valid hospital code plus that hospital's admin key."""
     provided = (admin_key or "").strip()
-    stored = hospital.admin_key or ""  # empty until scripts/backfill_keys.py has run
-    if not (provided and stored and hmac.compare_digest(provided.encode(), stored.encode())):
-        # A missing key is a client mistake, not a guess, so only wrong keys count toward the limit.
+    if not admin_key_matches(provided, hospital.admin_key_hash):
         if provided:
-            _record_auth_failure(_client_ip(request))
-        raise HTTPException(status_code=403, detail="Admin key required")
+            raise _fail(db, get_client_ip(request), 403, INVALID_CREDENTIALS)
+        raise HTTPException(status_code=403, detail=INVALID_CREDENTIALS)
     return hospital
-
-
-def _check_hospital_id(hospital, hospital_id: int) -> None:
-    """/optimize and GET /runs keep their ?hospital_id=; it must be the authenticated hospital."""
-    if hospital.hospital_id != hospital_id:
-        raise HTTPException(status_code=400, detail=f"hospital_id does not match {HOSPITAL_CODE_HEADER}")
 
 
 def _new_credential(make):
@@ -251,12 +316,18 @@ def _require_hospital_ambulance(db: Session, hospital, call_sign: str):
     return ambulance
 
 
-def _current_assignments(db: Session, ambulance_ids) -> dict:
-    """ambulance_id -> its current assignment: the non-cancelled one with the highest assignment_id."""
+def _current_assignments(db: Session, hospital, ambulance_ids) -> dict:
+    """ambulance_id -> its current assignment: the non-cancelled one with the highest assignment_id.
+    Only the hospital's own ambulances are considered, whatever ids are passed in."""
     A = models.AmbulanceAssignment
     latest = (
         select(func.max(A.assignment_id))
-        .where(A.ambulance_id.in_(list(ambulance_ids)), A.status != models.AssignmentStatus.cancelled)
+        .join(models.Ambulance, models.Ambulance.ambulance_id == A.ambulance_id)
+        .where(
+            models.Ambulance.hospital_id == hospital.hospital_id,
+            A.ambulance_id.in_(list(ambulance_ids)),
+            A.status != models.AssignmentStatus.cancelled,
+        )
         .group_by(A.ambulance_id)
     )
     return {a.ambulance_id: a for a in db.scalars(select(A).where(A.assignment_id.in_(latest)))}
@@ -389,7 +460,39 @@ def _compute_plan(
         result["assignments"] = assign_ambulances_to_positions(ambulances, pd.DataFrame(result["details"]))
     except ValueError as exc:
         raise PlanError(422, str(exc))
+    result["kpis"] = _plan_kpis(
+        hour, hospital_lat, hospital_lng, result["chosen_candidates"], [a["type"] for a in result["assignments"]]
+    )
     return result
+
+
+def _nearest_candidate(lat: float, lng: float) -> tuple[str, float]:
+    """The candidate position (among all of them) closest to a point, and its distance in km."""
+    return min(
+        ((cid, haversine_km(lat, lng, info["lat"], info["lng"])) for cid, info in data["candidate_lookup"].items()),
+        key=lambda item: item[1],
+    )
+
+
+def _plan_kpis(hour: int, hospital_lat: float, hospital_lng: float, chosen_ids: list, unit_types: list) -> Optional[dict]:
+    """services.kpis numbers for a placement; "before" = every unit at the candidate nearest the hospital."""
+    risk = data["risk_scores"]
+    hour_rows = risk[risk[RISK_HOUR_COL] == hour]
+    if hour_rows.empty or not chosen_ids:
+        return None
+    lookup = data["candidate_lookup"]
+    base_id, base_km = _nearest_candidate(hospital_lat, hospital_lng)
+    multiplier = hour_rows["time_multiplier"].iloc[0] if "time_multiplier" in hour_rows else None
+    return compute_kpis(
+        data["travel_times"],
+        dict(zip(hour_rows[RISK_WARD_COL], hour_rows[RISK_SCORE_COL])),
+        chosen_ids,
+        base_id,
+        baseline_distance_km=base_km,
+        unit_types=unit_types,
+        chosen_points=[(lookup[str(c)]["lat"], lookup[str(c)]["lng"]) for c in chosen_ids if str(c) in lookup],
+        time_multiplier=multiplier,
+    )
 
 
 def _planning_window(hour: int) -> tuple[date, datetime, datetime]:
@@ -441,6 +544,9 @@ def _save_run_history(db: Session, result: dict, fleet, window_start: datetime, 
         update(models.AmbulanceAssignment)
         .where(
             models.AmbulanceAssignment.ambulance_id.in_(ambulance_ids.values()),
+            models.AmbulanceAssignment.ambulance_id.in_(
+                select(models.Ambulance.ambulance_id).where(models.Ambulance.hospital_id == run.hospital_id)
+            ),
             models.AmbulanceAssignment.status != models.AssignmentStatus.cancelled,
             models.AmbulanceAssignment.valid_from < window_end,
             models.AmbulanceAssignment.valid_to > window_start,
@@ -517,29 +623,28 @@ class HospitalRegistration(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"data_loaded": "error" not in data, "error": data.get("error")}
-
-
-@app.get("/health/db")
-def health_db(db: Session = Depends(get_db)):
-    try:
-        hospital_count = db.scalar(select(func.count()).select_from(models.Hospital))
-    except SQLAlchemyError as exc:
-        raise _db_unavailable(exc)
-    return {"database": "ok", "hospitals": hospital_count}
+    return {"ok": True}
 
 
 @app.post("/hospital/register")
-def register_hospital(registration: HospitalRegistration, db: Session = Depends(get_db)):
+def register_hospital(request: Request, registration: HospitalRegistration, db: Session = Depends(get_db)):
+    ip = get_client_ip(request)
+    try:
+        _maybe_purge(db)
+        _enforce_limit(db, ip, REGISTER, REGISTER_MAX, REGISTER_WINDOW)
+        _record(db, ip, REGISTER)  # every attempt counts, including ones that fail below
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise _db_unavailable(exc)
     code = _new_credential(lambda: generate_hospital_code(db, registration.hospital_name))
-    admin_key = _new_credential(lambda: generate_admin_key(db))
+    admin_key, admin_key_hash = _new_credential(lambda: generate_admin_key(db))
     hospital = models.Hospital(
         name=registration.hospital_name,
         lat=registration.lat,
         lng=registration.lng,
         operating_radius_km=registration.operating_radius_km,
         code=code,
-        admin_key=admin_key,
+        admin_key_hash=admin_key_hash,
     )
     # current_status defaults to available in the model.
     hospital.ambulances = [
@@ -551,8 +656,8 @@ def register_hospital(registration: HospitalRegistration, db: Session = Depends(
         db.commit()
     except IntegrityError as exc:
         db.rollback()
-        if getattr(getattr(exc.orig, "diag", None), "constraint_name", None) in ("hospitals_code_key", "hospitals_admin_key_key"):
-            # Another registration took the same code or key between our check and the insert.
+        if getattr(getattr(exc.orig, "diag", None), "constraint_name", None) == "hospitals_code_key":
+            # Another registration took the same code between our check and the insert.
             raise HTTPException(status_code=409, detail="Hospital code clash; please try again")
         # ambulances has UNIQUE (hospital_id, call_sign).
         raise HTTPException(status_code=409, detail="Each ambulance ID must be unique within the hospital")
@@ -563,8 +668,8 @@ def register_hospital(registration: HospitalRegistration, db: Session = Depends(
         "status": "registered",
         "hospital_id": hospital.hospital_id,
         "code": hospital.code,
-        # Shown once here; GET /hospital/keys returns it again to an admin.
-        "admin_key": hospital.admin_key,
+        # The only time this key is shown: only its hash is stored. Lost keys need rotating.
+        "admin_key": admin_key,
         "fleet_size": len(registration.ambulances),
     }
 
@@ -621,7 +726,8 @@ def add_ambulance(new: Ambulance, hospital=Depends(require_admin), db: Session =
 
 @app.get("/hospital/keys")
 def hospital_keys(hospital=Depends(require_admin)):
-    return {"code": hospital.code, "admin_key": hospital.admin_key}
+    """The driver code, for re-displaying to admins. The admin key can't be shown: only its hash is kept."""
+    return {"code": hospital.code}
 
 
 @app.post("/hospital/rotate-code")
@@ -639,13 +745,14 @@ def rotate_code(hospital=Depends(require_admin), db: Session = Depends(get_db)):
 @app.post("/hospital/rotate-admin-key")
 def rotate_admin_key(hospital=Depends(require_admin), db: Session = Depends(get_db)):
     """Issue a new admin key. The old one stops working immediately."""
-    hospital.admin_key = _new_credential(lambda: generate_admin_key(db))
+    admin_key, hospital.admin_key_hash = _new_credential(lambda: generate_admin_key(db))
     try:
         db.commit()
     except SQLAlchemyError as exc:
         db.rollback()
         raise _db_unavailable(exc)
-    return {"admin_key": hospital.admin_key}
+    # Shown once; only the hash is stored.
+    return {"admin_key": admin_key}
 
 
 @app.get("/fleet")
@@ -653,7 +760,7 @@ def fleet_status(hospital=Depends(get_hospital), db: Session = Depends(get_db)):
     """The hospital's ambulances with live status and current assignment."""
     try:
         fleet = _hospital_fleet(db, hospital.hospital_id)
-        current = _current_assignments(db, [a.ambulance_id for a in fleet])
+        current = _current_assignments(db, hospital, [a.ambulance_id for a in fleet])
     except SQLAlchemyError as exc:
         raise _db_unavailable(exc)
 
@@ -709,7 +816,7 @@ def update_assignment_status(
 ):
     try:
         ambulance = _require_hospital_ambulance(db, hospital, call_sign)
-        assignment = _current_assignments(db, [ambulance.ambulance_id]).get(ambulance.ambulance_id)
+        assignment = _current_assignments(db, hospital, [ambulance.ambulance_id]).get(ambulance.ambulance_id)
         if assignment is None:
             raise HTTPException(status_code=404, detail=f"Ambulance {call_sign!r} has no current assignment")
         assignment.status = models.AssignmentStatus(update_.status)
@@ -743,7 +850,6 @@ def demand_scores(hour: int = Query(..., ge=0, le=23, description="Hour of day (
 
 @app.get("/optimize")
 def optimize(
-    hospital_id: int = Query(..., description="ID returned by POST /hospital/register"),
     hour: int = Query(..., ge=0, le=23, description="Hour of day (0-23)"),
     min_spacing_km: float = Query(2.0, ge=0, description="Minimum distance between ambulances"),
     max_response_minutes: float = Query(
@@ -754,7 +860,6 @@ def optimize(
 ):
     if "error" in data:
         raise HTTPException(status_code=503, detail=data["error"])
-    _check_hospital_id(hospital, hospital_id)
 
     try:
         fleet = _hospital_fleet(db, hospital.hospital_id)
@@ -847,16 +952,14 @@ def simulate(request: SimulationRequest, hospital=Depends(require_admin), db: Se
 
 @app.get("/runs")
 def list_runs(
-    hospital_id: int = Query(..., description="ID returned by POST /hospital/register"),
     limit: int = Query(10, ge=1, le=50),
     hospital=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    _check_hospital_id(hospital, hospital_id)
     try:
         runs = db.scalars(
             select(models.OptimizationRun)
-            .where(models.OptimizationRun.hospital_id == hospital_id)
+            .where(models.OptimizationRun.hospital_id == hospital.hospital_id)
             .order_by(models.OptimizationRun.created_at.desc(), models.OptimizationRun.run_id.desc())
             .limit(limit)
         ).all()
@@ -878,7 +981,7 @@ def get_run(run_id: int, hospital=Depends(require_admin), db: Session = Depends(
         assignments = db.execute(
             select(models.AmbulanceAssignment, models.Ambulance)
             .join(models.Ambulance, models.Ambulance.ambulance_id == models.AmbulanceAssignment.ambulance_id)
-            .where(models.AmbulanceAssignment.run_id == run_id)
+            .where(models.AmbulanceAssignment.run_id == run_id, models.Ambulance.hospital_id == hospital.hospital_id)
             .order_by(models.Ambulance.ambulance_id)
         ).all()
     except SQLAlchemyError as exc:
@@ -891,8 +994,16 @@ def get_run(run_id: int, hospital=Depends(require_admin), db: Session = Depends(
         return {key: info.get(key) for key in ("name", "ward_code", "lat", "lng")}
 
     score_by_candidate = {p.candidate_id: p.weighted_score for p in positions}
+    kpis = (
+        _plan_kpis(
+            run.target_hour, hospital.lat, hospital.lng, [p.candidate_id for p in positions], [amb.type.value for _, amb in assignments]
+        )
+        if "error" not in data
+        else None
+    )
     return {
         **_run_summary(run),
+        "kpis": kpis,
         "min_spacing_km": run.min_spacing_km,
         "operating_radius_km": run.operating_radius_km,
         "model_version": run.model_version,

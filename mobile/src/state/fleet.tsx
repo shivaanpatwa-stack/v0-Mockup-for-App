@@ -313,7 +313,7 @@ export function FleetProvider({ children }: { children: ReactNode }) {
   )
 
   const changeHospital = useCallback(() => dropHospital(null), [dropHospital])
-  // Any response saying "Hospital code not found" means the stored code is stale.
+  // Any 401 "Invalid hospital code" means the stored code is stale (e.g. rotated by the hospital).
   const invalidateCode = useCallback(() => dropHospital(CODE_INVALID_NOTICE), [dropHospital])
 
   const refresh = useCallback(
