@@ -12,9 +12,9 @@ export const formatKm = (km: number) => `${km.toFixed(1)} km`
 
 export type DemandLevel = 'high' | 'medium' | 'low'
 
-// Same thresholds as the web dashboard's choropleth: <0.33 low, 0.33-0.66 medium, >0.66 high.
+// High above 0.46, Medium from 0.20 to 0.46, otherwise Low.
 export function demandLevel(score: number): DemandLevel {
-  if (score > 0.66) return 'high'
-  if (score >= 0.33) return 'medium'
+  if (score > 0.46) return 'high'
+  if (score >= 0.2) return 'medium'
   return 'low'
 }
