@@ -1,84 +1,74 @@
-export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000').replace(/\/$/, '')
+// Every call goes to this app's own /api/backend proxy, which adds the hospital's credentials from
+// httpOnly cookies. Page code never sees or stores a hospital code or admin key.
+export const API_URL = '/api/backend'
 
-// The hospital code from registration, remembered per browser and sent as X-Hospital-Code so the
-// backend serves this hospital rather than the newest one. Storage can be unavailable (private mode,
-// blocked site data), so every access is guarded; without a code the backend uses the newest hospital.
-const HOSPITAL_CODE_KEY = 'hospital_code'
-const HOSPITAL_CODE_HEADER = 'X-Hospital-Code'
-const ADMIN_KEY_KEY = 'admin_key'
-const ADMIN_KEY_HEADER = 'X-Admin-Key'
-const CODE_NOT_FOUND_DETAIL = 'Hospital code not found'
+// Only the hospital's display name is remembered in the browser (e.g. for "you're signed in to ...").
+const HOSPITAL_NAME_KEY = 'hospital_name'
 
-/** Fired on window when the stored code turned out to be stale and was cleared. */
-export const HOSPITAL_CODE_INVALID_EVENT = 'hospital-code-invalid'
-export const STALE_CODE_MESSAGE = "Your saved hospital code wasn't found and has been cleared. Reload the page to continue."
-
-export function getStoredHospitalCode(): string | null {
+export function getStoredHospitalName(): string | null {
   try {
-    return localStorage.getItem(HOSPITAL_CODE_KEY)
+    return localStorage.getItem(HOSPITAL_NAME_KEY)
   } catch {
     return null
   }
 }
 
-export function saveHospitalCode(code: string) {
+export function saveHospitalName(name: string) {
   try {
-    localStorage.setItem(HOSPITAL_CODE_KEY, code)
+    localStorage.setItem(HOSPITAL_NAME_KEY, name)
   } catch {
-    // Without storage the dashboard falls back to the newest hospital.
+    // Storage unavailable: only the name is lost, nothing else depends on it.
   }
 }
 
-export function clearHospitalCode() {
+function clearHospitalName() {
   try {
-    localStorage.removeItem(HOSPITAL_CODE_KEY)
+    localStorage.removeItem(HOSPITAL_NAME_KEY)
   } catch {
-    // Ignore: see saveHospitalCode.
+    // Ignore: see saveHospitalName.
   }
 }
 
-export function getStoredAdminKey(): string | null {
+export type SignInResult = { ok: true; name: string } | { ok: false; status: number }
+
+/** Sets the session cookies if the code and key are valid. Throws TypeError if the app can't be reached. */
+export async function signIn(code: string, adminKey: string): Promise<SignInResult> {
+  const res = await fetch('/api/session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, admin_key: adminKey }),
+  })
+  if (!res.ok) return { ok: false, status: res.status }
+  const { name } = (await res.json()) as { name: string }
+  saveHospitalName(name)
+  return { ok: true, name }
+}
+
+/** Clears the session cookies and the stored name. */
+export async function signOut() {
+  clearHospitalName()
   try {
-    return localStorage.getItem(ADMIN_KEY_KEY)
+    await fetch('/api/session', { method: 'DELETE' })
   } catch {
-    return null
+    // Offline: the cookies stay, but /start lets the user sign in again or switch hospital.
   }
 }
 
-export function saveAdminKey(key: string) {
-  try {
-    localStorage.setItem(ADMIN_KEY_KEY, key)
-  } catch {}
-}
-
-export function clearAdminKey() {
-  try {
-    localStorage.removeItem(ADMIN_KEY_KEY)
-  } catch {}
-}
+export const SESSION_ENDED_MESSAGE = 'Your session has ended. Please sign in again.'
 
 /**
- * fetch() against the backend, adding X-Hospital-Code when a code is stored. A 404 "Hospital code not
- * found" means the stored code is stale: it is cleared, HOSPITAL_CODE_INVALID_EVENT fires and an
- * ApiError with STALE_CODE_MESSAGE is thrown, so no caller mistakes it for "no hospital registered".
+ * fetch() through the proxy. 401/403 means the session's credentials no longer work (signed out
+ * elsewhere, or a code or key was regenerated): after one retry, in case a rotation just updated the
+ * cookie, the session is cleared and the browser goes to /start.
  */
 export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  const code = getStoredHospitalCode()
-  const adminKey = getStoredAdminKey()
-  const headers = new Headers(init.headers)
-  if (code) headers.set(HOSPITAL_CODE_HEADER, code)
-  if (adminKey) headers.set(ADMIN_KEY_HEADER, adminKey)
-  const res = await fetch(`${API_URL}${path}`, { ...init, headers })
-  if (code && res.status === 404) {
-    const detail = await res
-      .clone()
-      .json()
-      .then((body) => body?.detail)
-      .catch(() => undefined)
-    if (detail === CODE_NOT_FOUND_DETAIL) {
-      clearHospitalCode()
-      window.dispatchEvent(new Event(HOSPITAL_CODE_INVALID_EVENT))
-      throw new ApiError(STALE_CODE_MESSAGE)
+  let res = await fetch(`${API_URL}${path}`, init)
+  if (res.status === 401 || res.status === 403) {
+    res = await fetch(`${API_URL}${path}`, init)
+    if (res.status === 401 || res.status === 403) {
+      await signOut()
+      window.location.assign('/start')
+      throw new ApiError(SESSION_ENDED_MESSAGE)
     }
   }
   return res
@@ -118,6 +108,24 @@ export type OptimizeResult = {
   uncoverable_wards: string[]
   /** Coverable wards the chosen positions don't reach in time (empty when coverage is guaranteed). */
   uncovered_wards: string[]
+  /** Before/after impact of this placement (null if it couldn't be computed). */
+  kpis: Kpis | null
+}
+
+export type BeforeAfter = { before: number | null; after: number | null }
+
+/** From backend services/kpis.py. "Before" = every unit at the candidate position nearest the hospital. */
+export type Kpis = {
+  avg_response_min: BeforeAfter
+  demand_within_15_min_pct: BeforeAfter
+  demand_within_20_min_pct: BeforeAfter
+  worst_high_risk_ward: { ward_code: string; before_min: number | null; after_min: number | null } | null
+  wards_covered_20_min: { before: number; after: number; total: number }
+  baseline: { hospital_candidate_id: string; distance_km: number | null; approximate: boolean }
+  fleet: { total: number; als: number; bls: number }
+  /** Smallest distance between two chosen positions; null with one unit. */
+  min_spacing_km_actual: number | null
+  demand_now: { multiplier: number; level: 'Quiet' | 'Normal' | 'Busy'; top_wards: string[] } | null
 }
 
 export type AmbulanceStatus = 'available' | 'responding' | 'at_hospital' | 'unavailable'
@@ -134,10 +142,9 @@ export type Hospital = {
   ambulances: { id: string; type: 'ALS' | 'BLS'; status: AmbulanceStatus }[]
 }
 
-/** The active (most recently registered) hospital, or null if none is registered. Throws ApiError on other server errors. */
-export async function getHospital(signal?: AbortSignal): Promise<Hospital | null> {
+/** The signed-in hospital. Throws ApiError on server errors (and signs out on invalid credentials). */
+export async function getHospital(signal?: AbortSignal): Promise<Hospital> {
   const res = await apiFetch('/hospital', { signal })
-  if (res.status === 404) return null
   if (!res.ok) throw new ApiError(await readErrorMessage(res, 'Loading the hospital failed'))
   return res.json()
 }
@@ -242,6 +249,7 @@ export type RunDetail = RunSummary & {
   min_spacing_km: number
   operating_radius_km: number
   model_version: string | null
+  kpis: Kpis | null
   details: (Omit<OptimizedPosition, 'name' | 'ward_code' | 'lat' | 'lng'> & {
     rank: number
     name: string | null
@@ -261,8 +269,8 @@ export type RunDetail = RunSummary & {
 }
 
 /** The hospital's most recent runs, newest first. Throws ApiError on a server error. */
-export async function getRuns(hospitalId: number, limit = 10, signal?: AbortSignal): Promise<RunSummary[]> {
-  const res = await apiFetch(`/runs?hospital_id=${hospitalId}&limit=${limit}`, { signal })
+export async function getRuns(limit = 10, signal?: AbortSignal): Promise<RunSummary[]> {
+  const res = await apiFetch(`/runs?limit=${limit}`, { signal })
   if (!res.ok) throw new ApiError(await readErrorMessage(res, 'Loading recent runs failed'))
   return res.json()
 }
@@ -299,7 +307,7 @@ export type RegisterHospitalResponse = {
   hospital_id: number
   /** Short code drivers enter in the app; also identifies this hospital to the API. */
   code: string
-  /** Admin key returned once at registration; must be stored and sent as X-Admin-Key. */
+  /** Dashboard (admin) key, shown only in this response: the user must save it, it can't be shown again. */
   admin_key: string
   fleet_size: number
 }
@@ -308,14 +316,25 @@ export type RegisterHospitalResponse = {
 export class ApiError extends Error {}
 
 /** Throws ApiError when the server rejects the request, or TypeError when it can't be reached. */
+/** Public, so it bypasses apiFetch's sign-out handling. Throws TypeError if the app can't be reached. */
 export async function registerHospital(registration: HospitalRegistration): Promise<RegisterHospitalResponse> {
-  const res = await apiFetch('/hospital/register', {
+  const res = await fetch(`${API_URL}/hospital/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(registration),
   })
   if (!res.ok) throw new ApiError(await readErrorMessage(res, 'Registration failed'))
   return res.json()
+}
+
+/** New driver code; the old one stops working at once. The proxy updates the session cookie. */
+export function rotateDriverCode(): Promise<{ code: string }> {
+  return sendJson('POST', '/hospital/rotate-code', undefined, 'Regenerating the driver code failed')
+}
+
+/** New dashboard key, returned only here. The proxy updates the session cookie. */
+export function rotateDashboardKey(): Promise<{ admin_key: string }> {
+  return sendJson('POST', '/hospital/rotate-admin-key', undefined, 'Regenerating the dashboard key failed')
 }
 
 export async function readErrorMessage(res: Response, fallback: string): Promise<string> {

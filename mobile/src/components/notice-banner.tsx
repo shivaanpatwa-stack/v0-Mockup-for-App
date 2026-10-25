@@ -1,7 +1,9 @@
 import { Info, TriangleAlert, X } from 'lucide-react-native'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { colors } from '@/constants'
+import { NETWORK_MESSAGE, RATE_LIMIT_MESSAGE } from '@/lib/api'
 import type { AppError } from '@/lib/api'
+import { formatIstClock } from '@/lib/time'
 
 type Tone = 'warning' | 'error' | 'info'
 
@@ -64,6 +66,8 @@ export function ErrorNotice({
   onDismiss?: () => void
   retrying?: boolean
 }) {
+  if (error.kind === 'rate-limit') return <NoticeBanner tone="warning" message={error.message} onDismiss={onDismiss} />
+
   return error.kind === 'network' ? (
     <NoticeBanner
       tone="warning"
@@ -76,6 +80,36 @@ export function ErrorNotice({
   ) : (
     <NoticeBanner tone="error" message={error.message} onDismiss={onDismiss} />
   )
+}
+
+const STALE_AFTER_MS = 30 * 60_000
+
+/** The server can't be reached and the screen is showing the cache. */
+export function OfflineNotice({ cachedAt, onRetry, retrying }: { cachedAt: number | null; onRetry?: () => void; retrying?: boolean }) {
+  const stale = cachedAt !== null && Date.now() - cachedAt > STALE_AFTER_MS
+  const message =
+    cachedAt === null
+      ? NETWORK_MESSAGE
+      : `${NETWORK_MESSAGE} Showing last known position. Cached at ${formatIstClock(new Date(cachedAt))}${stale ? '\nData may be out of date' : ''}`
+  return (
+    <NoticeBanner
+      tone="warning"
+      message={message}
+      actionLabel={retrying ? 'Retrying…' : 'Retry'}
+      onAction={onRetry}
+      disabled={retrying}
+    />
+  )
+}
+
+/** Briefly shown when a poll succeeds again after being offline. */
+export function BackOnlineNotice({ show }: { show: boolean }) {
+  return show ? <NoticeBanner tone="info" message="Back online." /> : null
+}
+
+/** Shown while the server has told this device to stop (429). Polling is paused until it ends. */
+export function RateLimitNotice({ until }: { until: number | null }) {
+  return until ? <NoticeBanner tone="warning" message={RATE_LIMIT_MESSAGE} /> : null
 }
 
 const styles = StyleSheet.create({

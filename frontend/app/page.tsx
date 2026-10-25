@@ -1,19 +1,16 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
 import {
   apiFetch,
   ApiError,
-  HOSPITAL_CODE_INVALID_EVENT,
-  STALE_CODE_MESSAGE,
   getFleet,
   getHospital,
   getRun,
   getRuns,
   readErrorMessage,
+  saveHospitalName,
   simulate,
   type AmbulanceAssignment,
   type AmbulanceStatus,
@@ -27,6 +24,8 @@ import {
 } from '@/lib/api'
 import CopyCode from '@/components/copy-code'
 import EditFleetDialog from '@/components/edit-fleet-dialog'
+import HospitalMenu from '@/components/hospital-menu'
+import KpiStrip from '@/components/kpi-strip'
 import MapLegend from '@/components/map-legend'
 import WhatIfPanel from '@/components/what-if-panel'
 
@@ -147,36 +146,12 @@ function fleetSummary(hospital: Hospital) {
 }
 
 const formatScore = (score: number) => score.toFixed(2)
-const averageScore = (run: Run) => (run.details.length ? run.total_weighted_score / run.details.length : 0)
-
-function OptimizationStats({ run, previous }: { run: Run; previous: Run | null }) {
-  const change = previous && previous.total_weighted_score > 0
-    ? ((run.total_weighted_score - previous.total_weighted_score) / previous.total_weighted_score) * 100
-    : null
-  const top = run.details.reduce<Run['details'][number] | null>((best, p) => (!best || p.weighted_score > best.weighted_score ? p : best), null)
-
-  return (
-    <>
-      <div className="stat-card"><span>Previous total weighted score</span><strong>{previous ? formatScore(previous.total_weighted_score) : '—'}</strong><em>{previous ? `Last run · ${formatHour(previous.hour)}` : 'No earlier run'}</em></div>
-      <div className="stat-card optimized"><span>Optimized total weighted score</span><strong>{formatScore(run.total_weighted_score)}</strong><em>{change === null ? `${formatHour(run.hour)} · ${run.details.length} positions` : `${change >= 0 ? '↑' : '↓'} ${Math.abs(change).toFixed(0)}% vs previous run`}</em></div>
-      <div className="comparison">
-        <p>Optimization impact</p>
-        <div><span>Positions placed</span><strong>{previous ? <>{previous.details.length} <b>→</b> </> : null}{run.details.length}</strong></div>
-        <div><span>Average score per position</span><strong>{previous ? <>{formatScore(averageScore(previous))} <b>→</b> </> : null}{formatScore(averageScore(run))}</strong></div>
-        {top && <div><span>Top position</span><strong>{top.name ?? top.candidate_id}{top.ward_code && ` · ${top.ward_code}`}</strong></div>}
-      </div>
-    </>
-  )
-}
-
 export default function Page() {
-  const router = useRouter()
   const [day, setDay] = useState('Monday')
   const [hour, setHour] = useState(8)
   // Kept as typed so the field can be briefly empty while editing.
   const [spacing, setSpacing] = useState(String(DEFAULT_SPACING_KM))
   const [run, setRun] = useState<Run | null>(null)
-  const [previousRun, setPreviousRun] = useState<Run | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // undefined while loading; GET /hospital returning 404 redirects to /register instead.
@@ -197,14 +172,18 @@ export default function Page() {
 
   useEffect(() => {
     const controller = new AbortController()
+    // The proxy gate only lets this page render with a session; invalid credentials sign out in apiFetch.
     getHospital(controller.signal)
-      .then((found) => (found ? setHospital(found) : router.replace('/register')))
+      .then((found) => {
+        setHospital(found)
+        saveHospitalName(found.name)
+      })
       .catch((err) => {
         if ((err as Error).name === 'AbortError') return
         setError(err instanceof TypeError ? NETWORK_ERROR : (err as Error).message)
       })
     return () => controller.abort()
-  }, [router])
+  }, [])
 
   // Live fleet status: poll while the tab is visible, refresh as soon as it becomes visible again.
   useEffect(() => {
@@ -231,18 +210,10 @@ export default function Page() {
     }
   }, [hospital])
 
-  // A stale stored hospital code was cleared (lib/api.ts). Some callers, like fleet polling, swallow
-  // their errors, so the banner is raised here for every request.
-  useEffect(() => {
-    const onInvalid = () => setError(STALE_CODE_MESSAGE)
-    window.addEventListener(HOSPITAL_CODE_INVALID_EVENT, onInvalid)
-    return () => window.removeEventListener(HOSPITAL_CODE_INVALID_EVENT, onInvalid)
-  }, [])
-
   const refreshRuns = useCallback(async () => {
     if (!hospital) return
     try {
-      setRecentRuns(await getRuns(hospital.hospital_id, RECENT_RUNS_LIMIT))
+      setRecentRuns(await getRuns(RECENT_RUNS_LIMIT))
     } catch (err) {
       // The panel keeps its last list; the next Recalculate tries again.
       console.warn('Loading recent runs failed', err)
@@ -256,8 +227,8 @@ export default function Page() {
   async function refreshHospital() {
     try {
       const found = await getHospital()
-      if (found) setHospital(found) // also restarts fleet polling, which refreshes GET /fleet at once
-      else router.replace('/register')
+      setHospital(found) // also restarts fleet polling, which refreshes GET /fleet at once
+      saveHospitalName(found.name)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : NETWORK_ERROR)
     }
@@ -305,7 +276,6 @@ export default function Page() {
     setError(null)
     try {
       const params = new URLSearchParams({
-        hospital_id: String(hospital.hospital_id),
         hour: String(hour),
         min_spacing_km: String(spacingKm),
       })
@@ -316,7 +286,6 @@ export default function Page() {
         return
       }
       const result: OptimizeResult = await res.json()
-      setPreviousRun(run)
       setRun({ ...result, hour })
       setFleetChanged(false)
     } catch (err) {
@@ -338,7 +307,7 @@ export default function Page() {
     <main className="dashboard-shell">
       <header className="topbar">
         <div><p className="eyebrow">Fleet intelligence</p><h1>Ambulance Response Optimization Platform</h1></div>
-        <div className="topbar-actions"><div className="hospital"><span className="status-dot" /> {hospital?.name ?? 'Loading hospital…'}{hospital && <CopyCode code={hospital.code} className="hospital-code" />}</div><Link href="/register" className="reg-link">Register hospital</Link></div>
+        <div className="topbar-actions"><div className="hospital"><span className="status-dot" /> {hospital?.name ?? 'Loading hospital…'}{hospital && <CopyCode code={hospital.code} className="hospital-code" />}</div>{hospital && <HospitalMenu hospital={hospital} onChanged={refreshHospital} />}</div>
       </header>
       <section className="controls" aria-label="Model controls">
         <label>Day<select value={day} onChange={(e) => setDay(e.target.value)}>{['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map((item) => <option key={item}>{item}</option>)}</select></label>
@@ -380,7 +349,7 @@ export default function Page() {
       )}
       <section className="content-grid">
         <div className="map-card"><div className="map-heading"><div><p className="eyebrow">Mumbai operations map</p><h2>Demand by administrative ward</h2></div><span className="map-date">{lastSucceeded ? `Last calculated: ${formatIST(lastSucceeded.created_at)}` : recentRuns ? 'Not calculated yet' : ''}</span></div><div className="map"><MumbaiMap hour={mapHour} hospital={hospital} assignments={viewing ? pastRunMarkers(viewing) : simulation ? simulation.assignments : run?.assignments} simulated={!viewing && simulation !== null} simulatedRadiusKm={viewing ? null : simulation?.parameters.operating_radius_km} /><MapLegend hourLabel={formatHour(mapHour)} showSimulated={!viewing && simulation !== null} /></div></div>
-        <aside className="stats-column">{run ? <OptimizationStats run={run} previous={previousRun} /> : <><div className="stat-card"><span>Current average response time</span><strong>14.2 <small>min</small></strong><em>Baseline</em></div><div className="stat-card optimized"><span>Optimized average response time</span><strong>9.1 <small>min</small></strong><em>↓ 36% faster</em></div><div className="comparison"><p>Optimization impact</p><div><span>Reachable within 10 min</span><strong>48% <b>→</b> 71%</strong></div><div><span>Worst high-risk ward</span><strong>18 min <b>→</b> 8 min</strong></div></div></>}</aside>
+        <aside className="stats-column"><KpiStrip kpis={viewing ? viewing.kpis : simulation ? simulation.kpis : run?.kpis ?? null} mode={viewing ? 'past' : simulation ? 'simulation' : 'live'} pastLabel={viewing ? `Run #${viewing.run_id}` : undefined} hourLabel={formatHour(mapHour)} totalWeightedScore={viewing ? viewing.total_weighted_score : simulation ? simulation.total_weighted_score : run?.total_weighted_score} /></aside>
       </section>
       <section className="fleet-section"><div className="section-heading"><div><p className="eyebrow">Fleet overview</p><h2>Ambulance fleet</h2></div><div className="section-actions"><span>{fleet ? fleet.length : run ? run.assignments.length : hospital?.fleet_size ?? '—'} units modeled · {day}</span>{hospital && <button type="button" className="back-to-live" onClick={() => setEditOpen(true)}>Edit fleet</button>}</div></div><div className="table-wrap"><table><thead><tr>{['Ambulance ID', realRows ? 'Ward' : 'Current zone','Recommended position','ETA / response','Type','Status'].map((head) => <th key={head}>{head}</th>)}</tr></thead><tbody>{fleetRows.map((row) => <tr key={row.id}><td><strong>{row.id}</strong></td><td>{row.zone}</td><td>{row.position}</td><td>{row.eta}</td><td>{row.type}</td><td>{row.status ? <span className={`badge ${row.status.replace('_', '-')}`}>{STATUS_LABEL[row.status]}</span> : '—'}{row.assignmentStatus && <span className="assignment-status">{ASSIGNMENT_LABEL[row.assignmentStatus]}</span>}</td></tr>)}</tbody></table></div></section>
       <section className="fleet-section runs-section">

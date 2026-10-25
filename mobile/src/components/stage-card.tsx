@@ -2,7 +2,7 @@ import { Check, CircleCheck, Navigation, Play, Timer } from 'lucide-react-native
 import { StyleSheet, Text, View } from 'react-native'
 import { colors } from '@/constants'
 import type { AssignmentStage, CurrentAssignment } from '@/lib/api'
-import { formatIst, formatLocalClock } from '@/lib/time'
+import { formatIst, formatIstClock } from '@/lib/time'
 import { Button, Card } from './ui'
 
 const STEPS: { stage: AssignmentStage; label: string }[] = [
@@ -17,6 +17,8 @@ type Props = {
   /** Set while the unit has an unacknowledged re-plan. */
   replannedAt?: Date
   busy: boolean
+  /** The server can't be reached: the buttons stay visible but off, and nothing is queued. */
+  offline?: boolean
   onAdvance: (stage: AssignmentStage) => void
 }
 
@@ -36,18 +38,18 @@ function Step({ index, current, active }: { index: number; current: boolean; act
   )
 }
 
-export function StageCard({ assignment, stageTimes, replannedAt, busy, onAdvance }: Props) {
+export function StageCard({ assignment, stageTimes, replannedAt, busy, offline, onAdvance }: Props) {
   const stageIndex = STEPS.findIndex((s) => s.stage === assignment.assignment_status)
 
   const sublabel = (index: number): { text: string; good?: boolean } | null => {
     const stage = STEPS[index].stage
     if (index === 0) {
-      return replannedAt ? { text: `Re-assigned ${formatLocalClock(replannedAt)}` } : { text: `For ${formatIst(assignment.valid_from)}` }
+      return replannedAt ? { text: `Re-assigned ${formatIstClock(replannedAt)}` } : { text: `For ${formatIst(assignment.valid_from)}` }
     }
     if (index === 2 && stageIndex === 2) return { text: 'Current stage', good: true }
     const at = stageTimes[stage]
     if (!at || stageIndex < index) return null
-    return { text: `${stage === 'en_route' ? 'Started' : 'Arrived'} ${formatLocalClock(at)}` }
+    return { text: `${stage === 'en_route' ? 'Started' : 'Arrived'} ${formatIstClock(at)}` }
   }
 
   return (
@@ -75,17 +77,19 @@ export function StageCard({ assignment, stageTimes, replannedAt, busy, onAdvance
 
       {stageIndex === 0 && (
         <Button
-          label={replannedAt ? 'Acknowledge & Start moving' : 'Start moving'}
+          label={offline ? 'Reconnect to update' : replannedAt ? 'Acknowledge & Start moving' : 'Start moving'}
           icon={<Play size={18} color={colors.white} fill={colors.white} />}
           busy={busy}
+          disabled={offline}
           onPress={() => onAdvance('en_route')}
         />
       )}
       {stageIndex === 1 && (
         <Button
-          label="I've arrived"
+          label={offline ? 'Reconnect to update' : "I've arrived"}
           icon={<CircleCheck size={22} color={colors.white} />}
           busy={busy}
+          disabled={offline}
           onPress={() => onAdvance('in_position')}
         />
       )}
