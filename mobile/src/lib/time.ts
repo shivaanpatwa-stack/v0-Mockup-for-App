@@ -28,11 +28,5 @@ export function formatWindow(fromIso: string, toIso: string): string {
     : `${clock(from.hour, from.minute)} to ${clock(to.hour, to.minute)}`
 }
 
-export const formatLocalClock = (date: Date) =>
-  date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-
-export function relativeTime(date: Date, now = new Date()): string {
-  const minutes = Math.floor((now.getTime() - date.getTime()) / 60_000)
-  if (minutes < 1) return 'Just now'
-  return minutes === 1 ? '1 min ago' : `${minutes} min ago`
-}
+/** A moment on this device's clock, shown in Asia/Kolkata like every other time in the app. */
+export const formatIstClock = (date: Date) => formatIst(date.toISOString())
