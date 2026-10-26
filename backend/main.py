@@ -139,10 +139,17 @@ def _clean(value):
     return value.item() if hasattr(value, "item") else value
 
 
+# Database driver errors can name hosts, users, tables and constraints, so clients get a generic
+# message and the details go to the server log. Set ENVIRONMENT=development to see them in responses.
+SHOW_ERROR_DETAILS = os.getenv("ENVIRONMENT", "production").strip().lower() == "development"
+DB_UNAVAILABLE = "Database service temporarily unavailable"
+
+
 def _db_unavailable(exc: SQLAlchemyError) -> HTTPException:
-    # Only the driver's first line: enough to diagnose, never the connection URL or any values.
+    # First line only: the driver's later lines can include the values that were sent.
     reason = str(getattr(exc, "orig", exc)).strip().splitlines()[0]
-    return HTTPException(status_code=503, detail=f"Database unreachable: {reason}")
+    logger.error("Database error: %s", reason)
+    return HTTPException(status_code=503, detail=f"{DB_UNAVAILABLE}: {reason}" if SHOW_ERROR_DETAILS else DB_UNAVAILABLE)
 
 
 # ---- Client IP ----
