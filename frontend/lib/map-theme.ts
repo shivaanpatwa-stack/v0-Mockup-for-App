@@ -15,7 +15,7 @@ export function demandLevel(score: number): DemandLevel {
 
 export const DEMAND_LABEL: Record<DemandLevel, string> = { high: 'High', medium: 'Medium', low: 'Low' }
 
-type MapColor = 'navy' | 'high' | 'medium' | 'low' | 'border' | 'ink' | 'muted' | 'no-data'
+type MapColor = 'navy' | 'high' | 'medium' | 'low' | 'border' | 'ink' | 'muted' | 'no-data' | 'surface'
 
 /**
  * The value of the CSS variable --map-{name} from globals.css, the single source of the map palette.
@@ -25,3 +25,4 @@ export function mapColor(name: MapColor): string {
   if (typeof document === 'undefined') return ''
   return getComputedStyle(document.documentElement).getPropertyValue(`--map-${name}`).trim()
 }
+

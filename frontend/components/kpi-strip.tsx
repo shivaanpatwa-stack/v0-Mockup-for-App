@@ -22,7 +22,7 @@ const num = (v: number | null | undefined, digits = 1) => (v == null ? dash : v.
 function Delta({ before, after, better, unit }: { before: number | null; after: number | null; better: Better; unit: string }) {
   if (before == null || after == null) return null
   const diff = Math.round((after - before) * 10) / 10
-  if (diff === 0) return <span className="kpi-delta">No change</span>
+  if (diff === 0) return <span className="kpi-delta">±0</span>
   const improved = better === 'lower' ? diff < 0 : diff > 0
   const sign = diff > 0 ? '+' : '−'
   return (
@@ -38,11 +38,14 @@ function Item({ label, before, after, suffix, children }: { label: string; befor
   return (
     <div className="kpi-item">
       <span className="kpi-label">{label}</span>
-      <strong className="kpi-values">
-        {before} <b aria-label="to">→</b> {after}
-        {suffix && <small> {suffix}</small>}
-      </strong>
-      {children}
+      <div className="kpi-val-row">
+        <strong className="kpi-current">
+          {after}
+          {suffix && <small className="kpi-suffix"> {suffix}</small>}
+        </strong>
+        {before !== dash && before !== after && <span className="kpi-was">was {before}</span>}
+        {children}
+      </div>
     </div>
   )
 }
@@ -59,6 +62,9 @@ export default function KpiStrip({ kpis, mode, pastLabel, hourLabel, totalWeight
         {['Avg response time (min)', 'Demand covered within 15 min (%)', 'Worst high-risk ward', 'Wards covered within 20 min'].map((label) => (
           <Item key={label} label={label} before={dash} after={dash} />
         ))}
+        <div className="kpi-hour-divider">
+          <span className="kpi-hour-title">This hour</span>
+        </div>
         <p className="kpi-caption">Run Recalculate to see impact.</p>
       </div>
     )
@@ -98,21 +104,34 @@ export default function KpiStrip({ kpis, mode, pastLabel, hourLabel, totalWeight
         {baseline.approximate && baseline.distance_km != null && ` Base is the nearest position, ${baseline.distance_km} km from the hospital.`}
       </p>
 
-      <div className="kpi-secondary">
+      <div className="kpi-hour-divider">
+        <span className="kpi-hour-title">This hour</span>
+      </div>
+      <div className="kpi-hour-block">
         {demand && (
-          <span className={`kpi-demand kpi-demand-${demand.level.toLowerCase()}`}>
-            {demand.level}, {demand.multiplier.toFixed(2)}x average at {hourLabel}
-            {demand.top_wards.length > 0 && <span className="kpi-muted"> · Top wards {demand.top_wards.join(', ')}</span>}
-          </span>
+          <div className="kpi-hour-row">
+            <span className="kpi-hour-label">Demand</span>
+            <span>
+              {demand.level}, {demand.multiplier.toFixed(2)}x avg
+              {demand.top_wards.length > 0 && <span className="kpi-muted"> · {demand.top_wards.join(', ')}</span>}
+            </span>
+          </div>
         )}
-        <span>
-          {fleet.total} {fleet.total === 1 ? 'unit' : 'units'} ({fleet.als} ALS, {fleet.bls} BLS)
-        </span>
-        <span>Closest pair {kpis.min_spacing_km_actual == null ? dash : `${kpis.min_spacing_km_actual.toFixed(2)} km`}</span>
+        <div className="kpi-hour-row">
+          <span className="kpi-hour-label">Fleet</span>
+          <span>{fleet.total} {fleet.total === 1 ? 'unit' : 'units'} ({fleet.als} ALS, {fleet.bls} BLS)</span>
+        </div>
+        <div className="kpi-hour-row">
+          <span className="kpi-hour-label">Closest pair</span>
+          <span>{kpis.min_spacing_km_actual == null ? dash : `${kpis.min_spacing_km_actual.toFixed(2)} km`}</span>
+        </div>
         {totalWeightedScore != null && (
-          <span className="kpi-advanced" tabIndex={0} title={`Total weighted score ${totalWeightedScore.toFixed(2)}`} aria-label={`Advanced: total weighted score ${totalWeightedScore.toFixed(2)}`}>
-            Advanced
-          </span>
+          <details className="kpi-advanced-details">
+            <summary>Advanced</summary>
+            <div className="kpi-advanced-body">
+              Total weighted score: <strong>{totalWeightedScore.toFixed(2)}</strong>
+            </div>
+          </details>
         )}
       </div>
     </div>

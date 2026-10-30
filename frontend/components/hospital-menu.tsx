@@ -74,13 +74,24 @@ export default function HospitalMenu({ hospital, onChanged }: { hospital: Hospit
   return (
     <>
       <details className="hospital-menu" ref={menuRef}>
-        <summary aria-label="Hospital menu">Menu</summary>
+        <summary className="hospital-chip" aria-label="Hospital menu">
+          <span className="status-dot" />
+          <span className="hospital-chip-name">{hospital.name}</span>
+          <span className="hospital-chip-chevron" aria-hidden="true">▾</span>
+        </summary>
         <div className="hospital-menu-list" role="menu">
+          <div className="menu-code-item">
+            <CopyCode code={hospital.code} label="Driver code" />
+          </div>
+          <div className="menu-divider" />
           <button type="button" role="menuitem" onClick={openKeys}>
             Hospital keys
           </button>
           <button type="button" role="menuitem" onClick={onSignOut}>
-            Sign out / switch hospital
+            Switch hospital
+          </button>
+          <button type="button" role="menuitem" onClick={onSignOut}>
+            Sign out
           </button>
         </div>
       </details>
