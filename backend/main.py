@@ -445,6 +445,8 @@ def _compute_plan(
             min_spacing_km,
             travel_times=data["travel_times"],
             max_response_minutes=max_response_minutes,
+            zone_scores=zone_scores,   # enables ward-coverage diversity bonus
+            coverage_weight=0.5,       # 50 % quality, 50 % geographic spread
         )
     except ValueError as exc:
         raise PlanError(422, str(exc))

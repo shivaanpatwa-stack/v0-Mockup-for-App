@@ -10,7 +10,7 @@ import { DEMAND_LABEL, demandLevel, mapColor } from '@/lib/map-theme'
 const GEOJSON_URL = '/data/zones_full_features_final.geojson'
 
 const FETCH_DEBOUNCE_MS = 300
-const WARD_FILL_OPACITY = 0.4
+const WARD_FILL_OPACITY = 0.5
 const WARD_LABEL_MIN_ZOOM = 11
 // Ward codes sit above street labels (450) but below radius circles (460) and markers (600).
 const WARD_LABEL_PANE = 'ward-labels'
@@ -28,8 +28,8 @@ function wardStyle(feature: Feature | undefined, scores: RiskLookup | null): Pat
   const code = wardCode(feature)
   const score = code && scores ? scores[code] : undefined
   return {
-    color: '#ffffff',
-    opacity: 0.9,
+    color: '#F9F6F0',
+    opacity: 1,
     weight: 1,
     fillColor: score === undefined ? mapColor('no-data') : riskColor(score),
     fillOpacity: WARD_FILL_OPACITY,

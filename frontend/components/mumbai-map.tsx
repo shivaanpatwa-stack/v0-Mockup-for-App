@@ -34,10 +34,13 @@ const hospitalIcon = divIcon({
   tooltipAnchor: [HOSPITAL_ICON_SIZE / 2, 0],
 })
 
-/** Short label drawn inside a unit marker: trailing digits ("AMB-01" -> "01"), else the first letters. */
+/** Short label drawn inside a unit marker: two-digit number (e.g. "01", "02"). */
 function unitLabel(ambulanceId: string) {
   const digits = ambulanceId.match(/(\d+)\D*$/)?.[1]
-  return (digits ?? ambulanceId.replace(/[^A-Za-z]/g, '')).slice(-3).toUpperCase() || '?'
+  if (digits) {
+    return digits.padStart(2, '0').slice(-2)
+  }
+  return ambulanceId.replace(/[^A-Za-z0-9]/g, '').slice(-2).toUpperCase() || '01'
 }
 
 // One icon per type / simulated / label combination, so re-renders reuse the same DOM.
@@ -94,13 +97,10 @@ function PlanViewport({ hospital, assignments, simulatedRadiusKm }: PlanViewport
       return
     }
     const bounds = points.reduce((all, b) => all.extend(b), latLngBounds(points[0].getSouthWest(), points[0].getNorthEast()))
-    // 40px all round, plus the legend's height at the bottom so no marker ends up behind it.
-    const legend = map.getContainer().parentElement?.querySelector<HTMLElement>('.map-legend')
-    const legendSpace = legend ? legend.offsetHeight + 12 : 0
     map.fitBounds(clipToMumbai(bounds), {
       ...FIT_OPTIONS,
       paddingTopLeft: [FIT_PADDING, FIT_PADDING],
-      paddingBottomRight: [FIT_PADDING, FIT_PADDING + legendSpace],
+      paddingBottomRight: [FIT_PADDING, FIT_PADDING],
     })
   }
 
