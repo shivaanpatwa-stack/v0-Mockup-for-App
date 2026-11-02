@@ -294,6 +294,35 @@ export async function getDemandScores(hour: number, signal?: AbortSignal): Promi
   return res.json()
 }
 
+export type Place = { id: string; name: string; label: string; lat: number; lng: number }
+
+export type PlaceSearchResult =
+  | { ok: true; places: Place[] }
+  | { ok: false; reason: 'too_short' | 'rate_limited' | 'unavailable' }
+
+export const PLACE_QUERY_MIN = 3
+export const PLACE_QUERY_MAX = 80
+
+/**
+ * Up to 6 places in Mumbai matching the text, from the backend's GET /geocode (public, through the
+ * proxy). A plain fetch: a search problem must never sign anyone out.
+ */
+export async function searchPlaces(query: string, signal?: AbortSignal): Promise<PlaceSearchResult> {
+  const q = query.trim()
+  if (q.length < PLACE_QUERY_MIN) return { ok: false, reason: 'too_short' }
+  let res: Response
+  try {
+    res = await fetch(`${API_URL}/geocode?q=${encodeURIComponent(q.slice(0, PLACE_QUERY_MAX))}`, { signal })
+  } catch (err) {
+    if ((err as Error).name === 'AbortError') throw err
+    return { ok: false, reason: 'unavailable' }
+  }
+  if (res.ok) return { ok: true, places: (await res.json()) as Place[] }
+  if (res.status === 429) return { ok: false, reason: 'rate_limited' }
+  if (res.status === 422) return { ok: false, reason: 'too_short' }
+  return { ok: false, reason: 'unavailable' }
+}
+
 export type HospitalRegistration = {
   hospital_name: string
   lat: number

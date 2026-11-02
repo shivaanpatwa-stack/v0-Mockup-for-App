@@ -3,29 +3,40 @@
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useRef, useState } from 'react'
-import type { FormEvent, KeyboardEvent } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { FormEvent } from 'react'
 import type { LatLng, ViewTarget } from './location-picker-map'
 import CopyCode from './copy-code'
-import { ApiError, getStoredHospitalName, registerHospital, signIn, type RegisterHospitalResponse } from '@/lib/api'
+import LocationSearch from './location-search'
+import {
+  ApiError,
+  getStoredHospitalName,
+  registerHospital,
+  signIn,
+  type Place,
+  type RegisterHospitalResponse,
+} from '@/lib/api'
 
 const LocationPickerMap = dynamic(() => import('./location-picker-map'), {
   ssr: false,
   loading: () => <div className="reg-map-loading">Loading map…</div>,
 })
 
-const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search'
-// Biases (does not restrict) geocoding results towards Mumbai: left,top,right,bottom.
-const MUMBAI_VIEWBOX = '72.75,19.30,73.05,18.85'
+const PLACE_ZOOM = 16
+
+// The area the platform covers (same box as the backend's place search).
+const MUMBAI = { latMin: 18.85, latMax: 19.3, lngMin: 72.75, lngMax: 73.05 }
+const insideMumbai = ({ lat, lng }: LatLng) =>
+  lat >= MUMBAI.latMin && lat <= MUMBAI.latMax && lng >= MUMBAI.lngMin && lng <= MUMBAI.lngMax
+
+/** Where the pin came from: a search result (with its label) or the user clicking/dragging. */
+type PinSource = { kind: 'search'; label: string } | { kind: 'manual' }
 
 const MIN_RADIUS_KM = 5
 const MAX_RADIUS_KM = 30
 
 type AmbulanceType = 'ALS' | 'BLS'
 type AmbulanceRow = { key: number; id: string; type: AmbulanceType }
-
-// Nominatim's boundingbox is [south, north, west, east] as strings.
-type NominatimResult = { boundingbox: [string, string, string, string] }
 
 export default function HospitalRegistrationForm({ hasSession }: { hasSession: boolean }) {
   const router = useRouter()
@@ -40,12 +51,8 @@ export default function HospitalRegistrationForm({ hasSession }: { hasSession: b
   const [ambulances, setAmbulances] = useState<AmbulanceRow[]>([{ key: 0, id: '', type: 'ALS' }])
   const nextKey = useRef(1)
   const [location, setLocation] = useState<LatLng | null>(null)
-
-  const [query, setQuery] = useState('')
+  const [pinSource, setPinSource] = useState<PinSource | null>(null)
   const [viewTarget, setViewTarget] = useState<ViewTarget | null>(null)
-  const [searching, setSearching] = useState(false)
-  const [searchError, setSearchError] = useState<string | null>(null)
-  const searchAbort = useRef<AbortController | null>(null)
 
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -67,10 +74,10 @@ export default function HospitalRegistrationForm({ hasSession }: { hasSession: b
     allIdsFilled &&
     !hasDuplicateIds &&
     location !== null &&
+    insideMumbai(location) &&
     !submitting &&
     !registered
 
-  useEffect(() => () => searchAbort.current?.abort(), [])
   useEffect(() => setCurrentName(getStoredHospitalName()), [])
 
   function updateAmbulance(key: number, patch: Partial<Omit<AmbulanceRow, 'key'>>) {
@@ -85,46 +92,17 @@ export default function HospitalRegistrationForm({ hasSession }: { hasSession: b
     setAmbulances((rows) => rows.filter((row) => row.key !== key))
   }
 
-  async function runSearch() {
-    const q = query.trim()
-    if (!q) return
-
-    searchAbort.current?.abort()
-    const controller = new AbortController()
-    searchAbort.current = controller
-    setSearching(true)
-    setSearchError(null)
-
-    try {
-      const url = `${NOMINATIM_URL}?format=json&limit=1&countrycodes=in&viewbox=${MUMBAI_VIEWBOX}&q=${encodeURIComponent(q)}`
-      const res = await fetch(url, { signal: controller.signal })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const results: NominatimResult[] = await res.json()
-      if (results.length === 0) {
-        setSearchError('No matches found. Try a nearby landmark or area name.')
-        return
-      }
-      const [south, north, west, east] = results[0].boundingbox.map(Number)
-      setViewTarget({
-        bounds: [
-          [south, west],
-          [north, east],
-        ],
-      })
-    } catch (err) {
-      if ((err as Error).name === 'AbortError') return
-      setSearchError('Search failed. Check your connection and try again.')
-    } finally {
-      if (searchAbort.current === controller) setSearching(false)
-    }
+  function choosePlace(place: Place) {
+    setLocation({ lat: place.lat, lng: place.lng })
+    setPinSource({ kind: 'search', label: place.label })
+    setViewTarget({ center: { lat: place.lat, lng: place.lng }, zoom: PLACE_ZOOM })
   }
 
-  function onSearchKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key !== 'Enter') return
-    // The search box lives inside the registration <form>; Enter must not submit it.
-    e.preventDefault()
-    runSearch()
-  }
+  // Stable identity so the map's drag handler isn't rebuilt on every keystroke elsewhere in the form.
+  const placeManually = useCallback((pos: LatLng) => {
+    setLocation(pos)
+    setPinSource({ kind: 'manual' })
+  }, [])
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -314,39 +292,33 @@ export default function HospitalRegistrationForm({ hasSession }: { hasSession: b
 
       <section className="reg-card">
         <h2>Hospital location</h2>
-        <p className="reg-hint">Search for an area, then click the map to place the hospital.</p>
-        <div className="reg-search">
-          <input
-            className="reg-input reg-grow"
-            type="search"
-            value={query}
-            placeholder="Search an address or area, then press Enter"
-            aria-label="Search for a location"
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={onSearchKeyDown}
-          />
-          <button type="button" className="reg-secondary" onClick={runSearch} disabled={searching || !query.trim()}>
-            {searching ? 'Searching…' : 'Search'}
-          </button>
-        </div>
-        {searchError && (
-          <p className="reg-error" role="alert">
-            {searchError}
-          </p>
-        )}
+        <p className="reg-hint">Search for the hospital or its area and pick a result, or click the map to place the pin.</p>
+        <LocationSearch onSelect={choosePlace} />
         <div className="reg-map">
           <LocationPickerMap
             position={location}
             radiusKm={radiusValid ? radiusKm : null}
             viewTarget={viewTarget}
-            onPick={setLocation}
+            onPick={placeManually}
           />
         </div>
-        <p className="reg-coords">
-          {location
-            ? `Selected: ${location.lat.toFixed(5)}, ${location.lng.toFixed(5)} — click elsewhere to move it`
-            : 'No location selected yet'}
-        </p>
+        <div className="reg-pin-status">
+          {pinSource ? (
+            <span className="reg-chip">{pinSource.kind === 'search' ? `Selected: ${pinSource.label}` : 'Pin set manually'}</span>
+          ) : (
+            <span className="reg-coords">No location selected yet</span>
+          )}
+          {location && (
+            <span className="reg-coords">
+              {location.lat.toFixed(5)}, {location.lng.toFixed(5)} · click the map or drag the pin to adjust
+            </span>
+          )}
+        </div>
+        {location && !insideMumbai(location) && (
+          <p className="reg-error" role="alert">
+            This point is outside Mumbai. Choose a location within the city to register.
+          </p>
+        )}
       </section>
 
       {submitError && (

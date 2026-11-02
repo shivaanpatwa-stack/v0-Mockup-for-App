@@ -9,6 +9,10 @@ import ipaddress
 import logging
 import os
 import random
+import threading
+import time as clock
+from collections import defaultdict, deque
+import unicodedata
 from contextlib import asynccontextmanager
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -25,6 +29,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 # Imported as a module: main.py already has a pydantic class named Ambulance.
+import geocoder
 import models
 from credentials import (
     CredentialGenerationError,
@@ -855,6 +860,56 @@ def demand_scores(hour: int = Query(..., ge=0, le=23, description="Hour of day (
         {"ward_code": _clean(ward), "risk_score": float(score)}
         for ward, score in zip(hour_rows[RISK_WARD_COL], hour_rows[RISK_SCORE_COL])
     ]
+
+
+GEOCODE_MIN_CHARS = 3
+GEOCODE_MAX_CHARS = 80
+SEARCH_UNAVAILABLE = "Search unavailable"
+
+# ---- Place-search rate limit: GEOCODE_MAX per GEOCODE_WINDOW_S per client IP ----
+# Kept in memory, not in auth_failures: it only stops people hammering Photon (a shared public
+# service) through us, and the database round trips (~135 ms each to Supabase) made every keystroke
+# search ~0.6 s slower. Trade-offs: it resets on restart and each server process counts separately.
+# Credential checks still use the database-backed limiter above.
+GEOCODE_MAX = 30
+GEOCODE_WINDOW_S = 60
+_geocode_hits: dict[str, deque] = defaultdict(deque)
+_geocode_lock = threading.Lock()
+
+
+def _geocode_rate_limit(ip: str) -> None:
+    now = clock.monotonic()
+    with _geocode_lock:
+        hits = _geocode_hits[ip]
+        while hits and hits[0] <= now - GEOCODE_WINDOW_S:
+            hits.popleft()
+        if len(hits) >= GEOCODE_MAX:
+            retry_after = max(1, int(hits[0] + GEOCODE_WINDOW_S - now) + 1)
+            raise HTTPException(status_code=429, detail=TOO_MANY_ATTEMPTS, headers={"Retry-After": str(retry_after)})
+        hits.append(now)
+        # Bounded memory: forget IPs whose window has fully expired (checked occasionally).
+        if len(_geocode_hits) > 10_000:
+            for key in [k for k, v in _geocode_hits.items() if not v or v[-1] <= now - GEOCODE_WINDOW_S]:
+                del _geocode_hits[key]
+
+
+@app.get("/geocode")
+def geocode(request: Request, q: str = Query(..., description="Place or address to search for in Mumbai")):
+    """Public place search for the registration map: up to 6 places in Mumbai as {id, name, label, lat, lng}."""
+    query = q.strip()
+    if not GEOCODE_MIN_CHARS <= len(query) <= GEOCODE_MAX_CHARS:
+        raise HTTPException(status_code=422, detail=f"q must be {GEOCODE_MIN_CHARS} to {GEOCODE_MAX_CHARS} characters")
+    if any(unicodedata.category(ch) in ("Cc", "Cf") for ch in query):
+        raise HTTPException(status_code=422, detail="q contains control characters")
+
+    _geocode_rate_limit(get_client_ip(request))  # every allowed search counts, cached or not
+
+    try:
+        return geocoder.search(query)
+    except geocoder.GeocoderError as exc:
+        # The reason goes to the log only; clients never see upstream errors.
+        logger.warning("Geocoder failed: %s", exc)
+        raise HTTPException(status_code=502, detail=SEARCH_UNAVAILABLE)
 
 
 @app.get("/optimize")

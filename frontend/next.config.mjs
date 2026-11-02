@@ -2,7 +2,6 @@ const isDev = process.env.NODE_ENV !== 'production'
 
 // Every origin the browser loads from besides this site. Add to this list when adding one.
 const MAP_TILES = 'https://*.basemaps.cartocdn.com' // basemap tiles (lib/map-tiles.ts)
-const GEOCODER = 'https://nominatim.openstreetmap.org' // address search on /register
 
 const csp = [
   "default-src 'self'",
@@ -11,7 +10,8 @@ const csp = [
   // Leaflet positions tiles and markers with inline styles.
   "style-src 'self' 'unsafe-inline'",
   `img-src 'self' data: blob: ${MAP_TILES}`,
-  `connect-src 'self' ${GEOCODER}${isDev ? ' ws: wss:' : ''}`,
+  // Place search goes through this app's /api/backend proxy, so no outside origin is needed.
+  `connect-src 'self'${isDev ? ' ws: wss:' : ''}`,
   "font-src 'self'",
   "object-src 'none'",
   "base-uri 'self'",

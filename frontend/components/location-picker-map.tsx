@@ -1,15 +1,24 @@
 'use client'
 
-import { useEffect } from 'react'
-import { Circle, CircleMarker, MapContainer, TileLayer, useMap, useMapEvents } from 'react-leaflet'
-import type { LatLngBoundsExpression } from 'leaflet'
+import { useEffect, useMemo } from 'react'
+import { Circle, MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet'
+import { divIcon, type LeafletEvent, type Marker as LeafletMarker } from 'leaflet'
 import { MUMBAI_CENTER, TILE_ATTRIBUTION, TILE_URL } from '@/lib/map-tiles'
 import 'leaflet/dist/leaflet.css'
 
 export type LatLng = { lat: number; lng: number }
 
-// Pass a new object each time to re-trigger the pan/zoom, even for the same bounds.
-export type ViewTarget = { bounds: LatLngBoundsExpression }
+// Pass a new object each time to re-trigger the fly-to, even for the same point.
+export type ViewTarget = { center: LatLng; zoom: number }
+
+const PIN_SIZE = 22
+
+// A round pin that's easy to grab and drag; colours come from CSS (.reg-pin).
+const pinIcon = divIcon({
+  className: 'reg-pin',
+  iconSize: [PIN_SIZE, PIN_SIZE],
+  iconAnchor: [PIN_SIZE / 2, PIN_SIZE / 2],
+})
 
 function ClickToPlace({ onPick }: { onPick: (pos: LatLng) => void }) {
   useMapEvents({
@@ -25,7 +34,7 @@ function ClickToPlace({ onPick }: { onPick: (pos: LatLng) => void }) {
 function FlyToTarget({ target }: { target: ViewTarget | null }) {
   const map = useMap()
   useEffect(() => {
-    if (target) map.flyToBounds(target.bounds, { maxZoom: 16 })
+    if (target) map.flyTo([target.center.lat, target.center.lng], target.zoom)
   }, [map, target])
   return null
 }
@@ -34,10 +43,21 @@ type Props = {
   position: LatLng | null
   radiusKm: number | null
   viewTarget: ViewTarget | null
+  /** A click on the map or the end of a pin drag: the user placing the pin by hand. */
   onPick: (pos: LatLng) => void
 }
 
 export default function LocationPickerMap({ position, radiusKm, viewTarget, onPick }: Props) {
+  const markerEvents = useMemo(
+    () => ({
+      dragend: (e: LeafletEvent) => {
+        const { lat, lng } = (e.target as LeafletMarker).getLatLng().wrap()
+        onPick({ lat, lng })
+      },
+    }),
+    [onPick],
+  )
+
   return (
     <MapContainer center={MUMBAI_CENTER} zoom={11} style={{ height: '100%', width: '100%' }}>
       <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} subdomains="abcd" />
@@ -53,11 +73,15 @@ export default function LocationPickerMap({ position, radiusKm, viewTarget, onPi
               pathOptions={{ color: '#0c4a6e', weight: 1, fillColor: '#0c4a6e', fillOpacity: 0.08 }}
             />
           )}
-          <CircleMarker
-            center={position}
-            radius={9}
-            interactive={false}
-            pathOptions={{ color: '#fff', weight: 2, fillColor: '#7c3aed', fillOpacity: 1 }}
+          <Marker
+            position={position}
+            icon={pinIcon}
+            draggable
+            autoPan
+            keyboard
+            title="Hospital location (drag to adjust)"
+            alt="Hospital location"
+            eventHandlers={markerEvents}
           />
         </>
       )}
