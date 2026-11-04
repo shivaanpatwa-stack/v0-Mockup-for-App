@@ -1825,3 +1825,22 @@ details.runs-details[open] .runs-chevron {
     height: 320px;
   }
 }
+/* ---- Location autocomplete (components/location-search.tsx) and map pin ---- */
+.loc-search{position:relative}
+.loc-search-field{position:relative;display:flex}
+.loc-search-input{flex:1;padding-right:34px}
+.loc-search-clear{position:absolute;top:50%;right:6px;width:24px;height:24px;transform:translateY(-50%);border:0;border-radius:50%;background:none;color:#71869b;font-size:18px;line-height:1;cursor:pointer}
+.loc-search-clear:hover,.loc-search-clear:focus-visible{background:#eef5fa;color:#17324d}
+.loc-search-dropdown{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:1200;background:#fff;border:1px solid #d6e2eb;border-radius:9px;overflow:hidden}
+.loc-search-dropdown ul{margin:0;padding:4px;list-style:none}
+.loc-search-dropdown ul:empty{display:none}
+.loc-option{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:6px;cursor:pointer}
+.loc-option.is-active{background:#eef5fa}
+.loc-option-name{color:#17324d;font-size:14px;font-weight:500}
+.loc-option-label{color:#71869b;font-size:12px}
+.loc-search-status:not(:empty){padding:10px 14px;color:#61788d;font-size:13px}
+.loc-search-footer{margin:0;padding:6px 14px;border-top:1px solid #e4edf2;color:#8093a4;font-size:11px}
+.reg-pin-status{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+.reg-chip{display:inline-flex;align-items:center;max-width:100%;padding:4px 10px;border:1px solid #c4b5fd;border-radius:99px;background:#f5f3ff;color:#5b21b6;font-size:12px;font-weight:600;overflow-wrap:anywhere}
+.reg-pin{box-sizing:border-box;background:#7c3aed;border:3px solid #fff;border-radius:50%;outline:1px solid #7c3aed;cursor:grab}
+.reg-pin:active{cursor:grabbing}
