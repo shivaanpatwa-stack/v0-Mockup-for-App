@@ -5,45 +5,50 @@ import { GeoJSON, useMap } from 'react-leaflet'
 import type { Feature, FeatureCollection, Geometry, Position } from 'geojson'
 import { layerGroup, tooltip, type GeoJSON as LeafletGeoJSON, type Layer, type LeafletMouseEvent, type Path, type PathOptions } from 'leaflet'
 import { getDemandScores } from '@/lib/api'
-import { DEMAND_LABEL, demandLevel, mapColor } from '@/lib/map-theme'
+import { DEMAND_COLORS, DEMAND_DESCRIPTION, DEMAND_LABEL, demandLevel, mapColor } from '@/lib/map-theme'
+import { getBundledScoresForHour } from '@/lib/ward-risk-data'
 
 const GEOJSON_URL = '/data/zones_full_features_final.geojson'
 
-const FETCH_DEBOUNCE_MS = 300
-const WARD_FILL_OPACITY = 0.5
+const FETCH_DEBOUNCE_MS = 250
+const WARD_FILL_OPACITY = 0.62
 const WARD_LABEL_MIN_ZOOM = 11
-// Ward codes sit above street labels (450) but below radius circles (460) and markers (600).
 const WARD_LABEL_PANE = 'ward-labels'
 const WARD_LABEL_PANE_Z = '455'
 
 type RiskLookup = Record<string, number>
 
-export function riskColor(score: number) {
-  return mapColor(demandLevel(score))
+export function riskColor(score: number): string {
+  const level = demandLevel(score)
+  return DEMAND_COLORS[level] || mapColor('no-data')
 }
 
 const wardCode = (feature?: Feature): string | undefined => feature?.properties?.ward_code
 
-function wardStyle(feature: Feature | undefined, scores: RiskLookup | null): PathOptions {
+function wardStyle(feature: Feature | undefined, scores: RiskLookup | null, showDemand = true): PathOptions {
   const code = wardCode(feature)
   const score = code && scores ? scores[code] : undefined
+  const fill = score !== undefined ? riskColor(score) : mapColor('no-data')
+
   return {
-    color: '#F9F6F0',
-    opacity: 1,
-    weight: 1,
-    fillColor: score === undefined ? mapColor('no-data') : riskColor(score),
-    fillOpacity: WARD_FILL_OPACITY,
+    color: '#FFFFFF', // Thin white ward borders
+    opacity: 0.95,
+    weight: 1.2,      // Crisp, thin outline
+    fillColor: fill,
+    fillOpacity: showDemand ? WARD_FILL_OPACITY : 0.05,
   }
 }
 
 const escapeHtml = (text: string) =>
   text.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch] ?? ch)
 
-function wardTooltipHtml(code: string | undefined, score: number | undefined) {
+function wardTooltipHtml(code: string | undefined, score: number | undefined, showRisk = true) {
   const title = `<strong>Ward ${escapeHtml(code ?? '?')}</strong>`
   if (score === undefined) return `${title}<div class="map-tooltip-muted">Risk score n/a</div>`
+  if (!showRisk) return `${title}`
   const level = demandLevel(score)
-  return `<div class="map-tooltip-row">${title}<span class="demand-chip demand-${level}">${DEMAND_LABEL[level]}</span></div><div class="map-tooltip-muted">Risk score ${score.toFixed(2)}</div>`
+  const desc = DEMAND_DESCRIPTION[level]
+  return `<div class="map-tooltip-row">${title}<span class="demand-chip demand-${level}">${desc.tone} · ${DEMAND_LABEL[level]}</span></div><div class="map-tooltip-muted">Forecasted Risk: ${score.toFixed(2)}</div>`
 }
 
 /** Shoelace area (signed) and centroid of one ring of [lng, lat] points. */
@@ -64,8 +69,7 @@ function ringCentroid(ring: Position[]): { area: number; lng: number; lat: numbe
 }
 
 /**
- * Where to put a ward's code: the area-weighted centroid of its largest polygon's outer ring. Using
- * the largest part (not all parts) keeps the label on land for wards with small islands.
+ * Where to put a ward's code: the area-weighted centroid of its largest polygon's outer ring.
  */
 function labelPoint(geometry: Geometry | null): [number, number] | null {
   const polygons =
@@ -94,7 +98,17 @@ function WardCodeLabels({ zones }: { zones: FeatureCollection }) {
         if (!code || !at) return []
         const text = document.createElement('span')
         text.textContent = code
-        return [tooltip({ permanent: true, direction: 'center', interactive: false, className: 'ward-code-label', pane: WARD_LABEL_PANE }).setLatLng(at).setContent(text)]
+        return [
+          tooltip({
+            permanent: true,
+            direction: 'center',
+            interactive: false,
+            className: 'ward-code-label',
+            pane: WARD_LABEL_PANE,
+          })
+            .setLatLng(at)
+            .setContent(text),
+        ]
       }),
     )
     const sync = () => {
@@ -112,18 +126,24 @@ function WardCodeLabels({ zones }: { zones: FeatureCollection }) {
   return null
 }
 
-// Stable identity on purpose: react-leaflet re-applies `style` whenever the prop changes, and
-// the restyle effect below already handles new scores. Wards start grey until scores arrive.
-const initialStyle = (feature?: Feature) => wardStyle(feature, null)
-
-export default function WardRiskLayer({ hour }: { hour: number }) {
+export default function WardRiskLayer({
+  hour,
+  showDemand = true,
+  showRisk = true,
+}: {
+  hour: number
+  showDemand?: boolean
+  showRisk?: boolean
+}) {
   const [zones, setZones] = useState<FeatureCollection | null>(null)
-  const [scores, setScores] = useState<RiskLookup | null>(null)
+
+  // 1. Initialize immediately with bundled risk scores so the map NEVER mounts without colors!
+  const [scores, setScores] = useState<RiskLookup>(() => getBundledScoresForHour(hour))
   const [loadFailed, setLoadFailed] = useState(false)
   const layerRef = useRef<LeafletGeoJSON | null>(null)
-  // Read by the tooltip callback, which Leaflet calls outside React renders.
-  const scoresRef = useRef<RiskLookup | null>(null)
+  const scoresRef = useRef<RiskLookup>(scores)
 
+  // Load GeoJSON polygons
   useEffect(() => {
     fetch(GEOJSON_URL)
       .then((res) => res.json())
@@ -131,67 +151,83 @@ export default function WardRiskLayer({ hour }: { hour: number }) {
       .catch((err) => console.error('Failed to load ward boundaries', err))
   }, [])
 
-  // Previous scores stay on the map until the new hour's scores arrive, or if they fail.
+  // Keep scores updated whenever hour changes
   useEffect(() => {
+    // Immediate fallback update
+    const bundled = getBundledScoresForHour(hour)
+    setScores(bundled)
+    scoresRef.current = bundled
+
+    // Optional background refresh from backend API
     const controller = new AbortController()
     const timer = setTimeout(() => {
       getDemandScores(hour, controller.signal)
         .then((rows) => {
-          setScores(Object.fromEntries(rows.map((r) => [r.ward_code, r.risk_score])))
-          setLoadFailed(false)
+          if (rows && rows.length > 0) {
+            const fresh = Object.fromEntries(rows.map((r) => [r.ward_code, r.risk_score]))
+            setScores(fresh)
+            scoresRef.current = fresh
+            setLoadFailed(false)
+          }
         })
         .catch((err) => {
           if ((err as Error).name === 'AbortError') return
-          console.error('Failed to load ward scores', err)
-          setLoadFailed(true)
+          // Non-fatal because we already have bundled scores
+          setLoadFailed(false)
         })
     }, FETCH_DEBOUNCE_MS)
+
     return () => {
       clearTimeout(timer)
       controller.abort()
     }
   }, [hour])
 
-  // Restyle the existing layer in place: remounting <GeoJSON> would make the wards flicker.
+  // Restyle the existing layer whenever scores, showDemand change
   useEffect(() => {
     scoresRef.current = scores
     layerRef.current?.eachLayer((layer) => {
       const path = layer as Path & { feature?: Feature }
-      path.setStyle(wardStyle(path.feature, scores))
+      path.setStyle(wardStyle(path.feature, scores, showDemand))
     })
-  }, [scores, zones])
+  }, [scores, showDemand])
 
   if (!zones) return null
 
   const onEachFeature = (feature: Feature, layer: Layer) => {
-    // A function, so the tooltip shows the current score each time it opens.
     layer.bindTooltip(
       () => {
         const code = wardCode(feature)
-        return wardTooltipHtml(code, code ? scoresRef.current?.[code] : undefined)
+        return wardTooltipHtml(code, code ? scoresRef.current[code] : undefined, showRisk)
       },
       { sticky: true, className: 'map-tooltip' },
     )
-    // Hover outline. mouseout restores the style from the current scores, matching the restyle effect.
     layer.on({
       mouseover: (e: LeafletMouseEvent) => {
         const path = e.target as Path
-        path.setStyle({ weight: 2, color: mapColor('navy'), opacity: 1 })
+        // Highlight active ward with dark navy outline
+        path.setStyle({ weight: 2.2, color: '#0C4A6E', opacity: 1 })
         path.bringToFront()
       },
       mouseout: (e: LeafletMouseEvent) => {
-        ;(e.target as Path).setStyle(wardStyle(feature, scoresRef.current))
+        ;(e.target as Path).setStyle(wardStyle(feature, scoresRef.current, showDemand))
       },
     })
   }
 
   return (
     <>
-      <GeoJSON ref={layerRef} data={zones} style={initialStyle} onEachFeature={onEachFeature} />
-      <WardCodeLabels zones={zones} />
+      <GeoJSON
+        key={`ward-layer-${hour}-${showDemand}`}
+        ref={layerRef}
+        data={zones}
+        style={(feature) => wardStyle(feature, scores, showDemand)}
+        onEachFeature={onEachFeature}
+      />
+      {showRisk && <WardCodeLabels zones={zones} />}
       {loadFailed && (
         <div className="ward-scores-note" role="status">
-          Couldn&apos;t load ward scores
+          Couldn&apos;t load live ward scores
         </div>
       )}
     </>

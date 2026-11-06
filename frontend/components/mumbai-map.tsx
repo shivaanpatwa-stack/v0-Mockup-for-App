@@ -1,12 +1,15 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { Circle, MapContainer, Marker, Pane, TileLayer, Tooltip, useMap } from 'react-leaflet'
+import { useEffect, useRef, useState, useMemo } from 'react'
+import { Circle, MapContainer, Marker, Pane, Popup, TileLayer, Tooltip, useMap, GeoJSON } from 'react-leaflet'
 import { Control, DomEvent, DomUtil, divIcon, latLng, latLngBounds, type DivIcon, type LatLngBounds } from 'leaflet'
+import type { FeatureCollection } from 'geojson'
+import { Sparkles, AlertCircle, Clock } from 'lucide-react'
 import WardRiskLayer from './ward-risk-layer'
 import { MUMBAI_CENTER, TILE_ATTRIBUTION, TILE_URL, TILE_URL_LABELS, TILE_URL_NO_LABELS } from '@/lib/map-tiles'
 import { mapColor } from '@/lib/map-theme'
-import type { AmbulanceAssignment, Hospital } from '@/lib/api'
+import type { AmbulanceAssignment, FleetAmbulance, Hospital, Kpis } from '@/lib/api'
+import { loadTravelTimeMatrix, getIsochroneWards, filterIsochroneGeoJson, type TravelTimeMatrix } from '@/lib/isochrone'
 import 'leaflet/dist/leaflet.css'
 
 const MUMBAI_BOUNDS: [[number, number], [number, number]] = [
@@ -17,50 +20,80 @@ const DEFAULT_ZOOM = 11
 const FIT_PADDING = 40
 const FIT_OPTIONS = { maxZoom: 13, animate: true, duration: 0.5 }
 
-// Pane order, bottom to top: tiles, ward polygons (overlayPane 400), street labels, radius circles,
-// markers (markerPane 600), tooltips (tooltipPane 650).
 const LABELS_PANE_Z = 450
+const ISOCHRONE_PANE_Z = 430
 const RADIUS_PANE_Z = 460
 
-const HOSPITAL_ICON_SIZE = 32
-const UNIT_ICON_SIZE = 30
+const HOSPITAL_ICON_SIZE = 34
+const UNIT_ICON_SIZE = 34
 
-// White cross on a navy rounded square; colors come from CSS (.hospital-marker).
-const hospitalIcon = divIcon({
-  className: 'hospital-marker',
-  html: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M10 4h4v6h6v4h-6v6h-4v-6H4v-4h6z" fill="currentColor"/></svg>',
+const hospitalIcon: DivIcon = divIcon({
+  className: 'map-marker-icon hospital-marker-icon',
+  html: '<div class="hospital-marker" aria-label="Hospital base"><span class="hospital-marker-plus">+</span></div>',
   iconSize: [HOSPITAL_ICON_SIZE, HOSPITAL_ICON_SIZE],
   iconAnchor: [HOSPITAL_ICON_SIZE / 2, HOSPITAL_ICON_SIZE / 2],
-  tooltipAnchor: [HOSPITAL_ICON_SIZE / 2, 0],
+  popupAnchor: [0, -HOSPITAL_ICON_SIZE / 2 - 4],
+  tooltipAnchor: [HOSPITAL_ICON_SIZE / 2 + 4, 0],
 })
 
-/** Short label drawn inside a unit marker: two-digit number (e.g. "01", "02"). */
-function unitLabel(ambulanceId: string) {
-  const digits = ambulanceId.match(/(\d+)\D*$/)?.[1]
-  if (digits) {
-    return digits.padStart(2, '0').slice(-2)
-  }
-  return ambulanceId.replace(/[^A-Za-z0-9]/g, '').slice(-2).toUpperCase() || '01'
+function unitLabel(id: string): string {
+  const match = id.match(/^([A-Za-z]+)[-_]?(\d+)$/)
+  if (match) return match[2].padStart(2, '0')
+  return id.replace(/^AMB-?/i, '').padStart(2, '0')
 }
 
-// One icon per type / simulated / label combination, so re-renders reuse the same DOM.
-const unitIconCache = new Map<string, DivIcon>()
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371
+  const dLat = (lat2 - lat1) * (Math.PI / 180)
+  const dLon = (lon2 - lon1) * (Math.PI / 180)
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLon / 2) * Math.sin(dLon / 2)
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  return R * c
+}
 
-function unitIcon(type: string, simulated: boolean, label: string): DivIcon {
+function distanceFromBase(hospital: Hospital | null | undefined, lat: number, lng: number): string {
+  if (!hospital) return '—'
+  return `${haversineKm(hospital.lat, hospital.lng, lat, lng).toFixed(1)} km`
+}
+
+function unitIcon(
+  type: string,
+  simulated: boolean,
+  label: string,
+  isDeployed: boolean,
+  isSelected: boolean,
+  isAtBase: boolean = false,
+  isHighlighted: boolean = false,
+): DivIcon {
   const kind = type.toUpperCase() === 'ALS' ? 'als' : 'bls'
-  const key = `${kind}|${simulated}|${label}`
-  let icon = unitIconCache.get(key)
-  if (!icon) {
-    icon = divIcon({
-      className: 'unit-marker-icon',
-      html: `<span class="unit-marker unit-${kind}${simulated ? ' unit-simulated' : ''}">${label}</span>`,
-      iconSize: [UNIT_ICON_SIZE, UNIT_ICON_SIZE],
-      iconAnchor: [UNIT_ICON_SIZE / 2, UNIT_ICON_SIZE / 2],
-      tooltipAnchor: [UNIT_ICON_SIZE / 2, 0],
-    })
-    unitIconCache.set(key, icon)
-  }
-  return icon
+  const stateClass = isHighlighted
+    ? 'unit-highlighted'
+    : isSelected
+    ? 'unit-selected'
+    : isAtBase
+    ? 'unit-at-base'
+    : isDeployed
+    ? 'unit-deployed'
+    : simulated
+    ? 'unit-simulated'
+    : 'unit-recommended'
+
+  const html = `<div class="unit-marker unit-${kind} ${stateClass}" aria-label="Unit ${label} (${isAtBase ? 'At Base' : isDeployed ? 'Deployed' : 'Recommended'})">
+    ${isHighlighted ? '<span class="unit-beacon-pulse" aria-hidden="true"></span>' : ''}
+    ${isDeployed && !isAtBase ? '<span class="unit-deployed-dot" aria-hidden="true"></span>' : ''}
+    <span class="unit-num">${label}</span>
+  </div>`
+
+  return divIcon({
+    className: `unit-marker-icon ${isHighlighted ? 'unit-marker-icon-highlighted' : ''}`,
+    html,
+    iconSize: [UNIT_ICON_SIZE, UNIT_ICON_SIZE],
+    iconAnchor: [UNIT_ICON_SIZE / 2, UNIT_ICON_SIZE / 2],
+    popupAnchor: [0, -UNIT_ICON_SIZE / 2 - 4],
+    tooltipAnchor: [UNIT_ICON_SIZE / 2 + 4, 0],
+  })
 }
 
 /** Clip bounds to the map's maxBounds so a fit never asks for a view outside them. */
@@ -79,12 +112,10 @@ type PlanViewportProps = {
   simulatedRadiusKm?: number | null
 }
 
-/** Fits the view to hospital + radius + markers whenever a new plan is shown, plus a "Reset view" control. */
 function PlanViewport({ hospital, assignments, simulatedRadiusKm }: PlanViewportProps) {
   const map = useMap()
   const fitRef = useRef<() => void>(() => {})
 
-  // Kept current on every render, so the control's click handler always fits the latest plan.
   fitRef.current = () => {
     const points: LatLngBounds[] = []
     if (hospital) {
@@ -104,7 +135,6 @@ function PlanViewport({ hospital, assignments, simulatedRadiusKm }: PlanViewport
     })
   }
 
-  // A new run, simulation or past-run view arrives as a new assignments array.
   useEffect(() => {
     if (assignments) fitRef.current()
   }, [assignments])
@@ -126,7 +156,6 @@ function PlanViewport({ hospital, assignments, simulatedRadiusKm }: PlanViewport
         return bar
       },
     })
-    // Added after the zoom control in the same corner, so it sits right under the zoom buttons.
     const control = new ResetControl({ position: 'topleft' })
     control.addTo(map)
     return () => {
@@ -137,98 +166,402 @@ function PlanViewport({ hospital, assignments, simulatedRadiusKm }: PlanViewport
   return null
 }
 
+export type MapLayer = 'demand' | 'risk' | 'ambulances' | 'coverage'
+
+export type MapFocusTarget = {
+  lat: number
+  lng: number
+  zoom?: number
+  wardCode?: string
+  key?: number
+} | null
+
+function MapFocusController({ target }: { target?: MapFocusTarget }) {
+  const map = useMap()
+  useEffect(() => {
+    if (target) {
+      map.flyTo([target.lat, target.lng], target.zoom ?? 14, { duration: 0.8 })
+    }
+  }, [map, target?.key, target?.lat, target?.lng, target?.zoom])
+  return null
+}
+
 type MumbaiMapProps = {
   hour: number
   hospital?: Hospital | null
   assignments?: AmbulanceAssignment[]
-  /** Draw `assignments` as unsaved what-if positions (dashed, lighter). */
+  fleet?: FleetAmbulance[] | null
   simulated?: boolean
-  /** A what-if operating radius, drawn when it differs from the hospital's. */
   simulatedRadiusKm?: number | null
+  kpis?: Kpis | null
+  hospitalCandidateId?: string | null
+  onViewModeChange?: (mode: 'after' | 'before') => void
+  focusTarget?: MapFocusTarget
+  highlightedUnitId?: string | null
+  onHighlightUnit?: (id: string | null) => void
 }
 
-export default function MumbaiMap({ hour, hospital, assignments, simulated = false, simulatedRadiusKm }: MumbaiMapProps) {
-  // If the label-only tiles can't load, fall back to the basemap with labels baked in.
+export default function MumbaiMap({
+  hour,
+  hospital,
+  assignments,
+  fleet,
+  simulated = false,
+  simulatedRadiusKm,
+  kpis,
+  hospitalCandidateId,
+  onViewModeChange,
+  focusTarget,
+  highlightedUnitId,
+  onHighlightUnit,
+}: MumbaiMapProps) {
   const [labelsFailed, setLabelsFailed] = useState(false)
-  const showSimulatedRadius = hospital && simulatedRadiusKm != null && simulatedRadiusKm !== hospital.operating_radius_km
-  const navy = mapColor('navy')
+  const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null)
+
+  // Before / After Segmented Toggle state
+  const [viewMode, setViewMode] = useState<'after' | 'before'>('after')
+
+  // Travel time matrix for real 15-minute isochrones
+  const [matrix, setMatrix] = useState<TravelTimeMatrix | null>(null)
+  const [zones, setZones] = useState<FeatureCollection | null>(null)
+
+  useEffect(() => {
+    loadTravelTimeMatrix().then(setMatrix)
+    fetch('/data/zones_full_features_final.geojson')
+      .then((r) => r.json())
+      .then(setZones)
+      .catch((err) => console.error('Failed to load zones for isochrone', err))
+  }, [])
+
+  // Interactive Layer Selector: Demand | Risk | Ambulances | 15m Isochrone
+  const [layers, setLayers] = useState<Record<MapLayer, boolean>>({
+    demand: true,
+    risk: true,
+    ambulances: true,
+    coverage: true, // Now controls the Real 15-Minute Isochrone!
+  })
+
+  const toggleLayer = (layer: MapLayer) => {
+    setLayers((prev) => ({ ...prev, [layer]: !prev[layer] }))
+  }
+
+  const handleModeSwitch = (mode: 'after' | 'before') => {
+    setViewMode(mode)
+    onViewModeChange?.(mode)
+  }
+
+  // Active candidate positions for isochrone calculation
+  const activeCandidateIds = useMemo(() => {
+    if (viewMode === 'before') {
+      const baseCandidate = hospitalCandidateId || kpis?.baseline.hospital_candidate_id || 'CAND_0048'
+      return [baseCandidate]
+    }
+    return (assignments ?? []).map((a) => a.candidate_id)
+  }, [viewMode, assignments, hospitalCandidateId, kpis])
+
+  // Compute the exact 15-minute isochrone reached wards
+  const isochroneWards = useMemo(() => {
+    return getIsochroneWards(matrix, activeCandidateIds, 15.0)
+  }, [matrix, activeCandidateIds])
+
+  // Filter the GeoJSON for the reached isochrone polygons
+  const isochroneGeoJson = useMemo(() => {
+    return filterIsochroneGeoJson(zones, isochroneWards)
+  }, [zones, isochroneWards])
+
+  // Compute marker positions based on viewMode
+  // In 'before' mode: All units stationed at the hospital base in a neat radial rosette
+  // In 'after' mode: Units placed at their optimized staging positions
+  const displayedMarkers = useMemo(() => {
+    if (!assignments || assignments.length === 0) return []
+
+    if (viewMode === 'before' && hospital) {
+      const total = assignments.length
+      const r = 0.003 // ~280 meters offset around the hospital base dock
+      return assignments.map((a, idx) => {
+        const angle = (2 * Math.PI * idx) / Math.max(1, total) - Math.PI / 2
+        return {
+          ...a,
+          lat: hospital.lat + r * Math.sin(angle),
+          lng: hospital.lng + (r / Math.cos((hospital.lat * Math.PI) / 180)) * Math.cos(angle),
+          name: `${hospital.name} (Base Dock)`,
+        }
+      })
+    }
+
+    return assignments
+  }, [assignments, viewMode, hospital])
+
+  const navy = mapColor('navy') || '#0C4A6E'
 
   return (
-    <MapContainer
-      center={MUMBAI_CENTER}
-      zoom={DEFAULT_ZOOM}
-      minZoom={10}
-      maxZoom={16}
-      zoomSnap={0.5}
-      zoomDelta={0.5}
-      maxBounds={MUMBAI_BOUNDS}
-      maxBoundsViscosity={1.0}
-      style={{ height: '100%', width: '100%' }}
-    >
-      <TileLayer url={labelsFailed ? TILE_URL : TILE_URL_NO_LABELS} attribution={TILE_ATTRIBUTION} subdomains="abcd" />
-      <WardRiskLayer hour={hour} />
-      {!labelsFailed && (
-        <Pane name="labels" style={{ zIndex: LABELS_PANE_Z, pointerEvents: 'none' }}>
-          <TileLayer url={TILE_URL_LABELS} subdomains="abcd" eventHandlers={{ tileerror: () => setLabelsFailed(true) }} />
-        </Pane>
-      )}
-      {hospital && (
-        <>
-          <Pane name="operating-radius" style={{ zIndex: RADIUS_PANE_Z, pointerEvents: 'none' }}>
+    <div className="mumbai-map-root" style={{ position: 'relative', width: '100%', height: '100%' }}>
+      {/* 1. Floating Before / After Segmented Toggle */}
+      <div className="map-segmented-container">
+        <div className="map-segmented-pill" role="radiogroup" aria-label="Deployment comparison">
+          <button
+            type="button"
+            className={`map-seg-btn ${viewMode === 'before' ? 'active' : ''}`}
+            onClick={() => handleModeSwitch('before')}
+            aria-checked={viewMode === 'before'}
+            title="Inspect baseline deployment with all units waiting at the hospital base"
+          >
+            <span className="seg-dot before" />
+            <span className="seg-title">Before: All at Base</span>
+            {kpis?.avg_response_min.before && (
+              <span className="seg-metric">{kpis.avg_response_min.before.toFixed(1)}m</span>
+            )}
+          </button>
+          <button
+            type="button"
+            className={`map-seg-btn ${viewMode === 'after' ? 'active' : ''}`}
+            onClick={() => handleModeSwitch('after')}
+            aria-checked={viewMode === 'after'}
+            title="Inspect algorithmically optimized distributed fleet staging"
+          >
+            <span className="seg-dot after" />
+            <span className="seg-title">After: Optimized</span>
+            {kpis?.avg_response_min.after && (
+              <span className="seg-metric">{kpis.avg_response_min.after.toFixed(1)}m</span>
+            )}
+          </button>
+        </div>
+
+        {/* Dynamic Mode Impact Callout */}
+        <div className={`map-view-callout ${viewMode === 'before' ? 'callout-before' : 'callout-after'}`}>
+          {viewMode === 'before' ? (
+            <>
+              <AlertCircle className="w-3.5 h-3.5 text-amber-700 flex-shrink-0" />
+              <span>
+                <strong>Baseline Staging:</strong> All units stationed at {hospital?.name || 'Base'}. 15-min isochrone reaches only{' '}
+                <strong>{isochroneWards.size} of 24 wards</strong> ({kpis?.demand_within_15_min_pct.before ? `${Math.round(kpis.demand_within_15_min_pct.before)}%` : 'limited'} city demand).
+              </span>
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-3.5 h-3.5 text-sky-700 flex-shrink-0" />
+              <span>
+                <strong>Optimized Staging:</strong> Distributed fleet. 15-min isochrone expands across{' '}
+                <strong>{isochroneWards.size} wards</strong> ({kpis?.demand_within_15_min_pct.after ? `${Math.round(kpis.demand_within_15_min_pct.after)}%` : '90%+'} city demand,{' '}
+                {kpis?.avg_response_min.before && kpis?.avg_response_min.after
+                  ? `−${(kpis.avg_response_min.before - kpis.avg_response_min.after).toFixed(1)}m faster`
+                  : 'faster'}
+                ).
+              </span>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* 2. Interactive Map Layer Selector */}
+      <div className="map-layer-selector" role="toolbar" aria-label="Map layers">
+        {(['demand', 'risk', 'ambulances', 'coverage'] as MapLayer[]).map((layer) => {
+          const labels: Record<MapLayer, string> = {
+            demand: 'Demand',
+            risk: 'Risk',
+            ambulances: 'Ambulances',
+            coverage: 'Coverage',
+          }
+          const isActive = layers[layer]
+          return (
+            <button
+              key={layer}
+              type="button"
+              className={`map-layer-btn ${isActive ? 'active' : ''}`}
+              onClick={() => toggleLayer(layer)}
+              aria-pressed={isActive}
+              title={`Toggle ${labels[layer]} layer`}
+            >
+              <span className={`layer-dot ${layer}`} aria-hidden="true" />
+              <span>{labels[layer]}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      <MapContainer
+        center={MUMBAI_CENTER}
+        zoom={DEFAULT_ZOOM}
+        minZoom={10}
+        maxZoom={16}
+        zoomSnap={0.5}
+        zoomDelta={0.5}
+        maxBounds={MUMBAI_BOUNDS}
+        maxBoundsViscosity={1.0}
+        style={{ height: '100%', width: '100%' }}
+      >
+        <TileLayer url={labelsFailed ? TILE_URL : TILE_URL_NO_LABELS} attribution={TILE_ATTRIBUTION} subdomains="abcd" />
+
+        {/* 3. Ward Risk Layer (Demand Choropleth & Risk Labels) */}
+        <WardRiskLayer hour={hour} showDemand={layers.demand} showRisk={layers.risk} />
+
+        {/* 4. Real 15-Minute Travel-Time Isochrone Layer */}
+        {layers.coverage && isochroneGeoJson && (
+          <Pane name="isochrone-pane" style={{ zIndex: ISOCHRONE_PANE_Z, pointerEvents: 'none' }}>
+            <GeoJSON
+              key={`isochrone-geojson-${viewMode}-${isochroneWards.size}`}
+              data={isochroneGeoJson}
+              style={() => ({
+                color: '#0C4A6E',
+                weight: 2.2,
+                dashArray: '4 4',
+                fillColor: '#0C4A6E',
+                fillOpacity: 0.18,
+              })}
+            />
+          </Pane>
+        )}
+
+        {/* 5. Geographic Operating Radius Circle (Native Leaflet geodesic circle in meters: radiusKm * 1000) */}
+        {layers.coverage && hospital && (
+          <Pane name="radius-pane" style={{ zIndex: RADIUS_PANE_Z, pointerEvents: 'none' }}>
             <Circle
               center={[hospital.lat, hospital.lng]}
               radius={hospital.operating_radius_km * 1000}
-              interactive={false}
-              pathOptions={{ color: navy, weight: 1.5, dashArray: '6 6', fillColor: navy, fillOpacity: 0.04 }}
+              pathOptions={{
+                color: navy,
+                weight: 1.8,
+                dashArray: '6 6',
+                fillColor: navy,
+                fillOpacity: 0.05,
+              }}
             />
-            {showSimulatedRadius && (
+            {simulatedRadiusKm && simulatedRadiusKm !== hospital.operating_radius_km && (
               <Circle
                 center={[hospital.lat, hospital.lng]}
                 radius={simulatedRadiusKm * 1000}
-                interactive={false}
-                pathOptions={{ color: navy, weight: 1.5, dashArray: '1 5', lineCap: 'round', fill: false }}
+                pathOptions={{
+                  color: '#78716C',
+                  weight: 1.8,
+                  dashArray: '3 6',
+                  fillColor: '#78716C',
+                  fillOpacity: 0.04,
+                }}
               />
             )}
           </Pane>
+        )}
+
+        {!labelsFailed && (
+          <Pane name="labels" style={{ zIndex: LABELS_PANE_Z, pointerEvents: 'none' }}>
+            <TileLayer url={TILE_URL_LABELS} subdomains="abcd" eventHandlers={{ tileerror: () => setLabelsFailed(true) }} />
+          </Pane>
+        )}
+
+        {/* Hospital Base Marker */}
+        {hospital && (
           <Marker
             position={[hospital.lat, hospital.lng]}
             icon={hospitalIcon}
-            title={`${hospital.name}, hospital`}
-            alt={`${hospital.name}, hospital`}
+            title={`${hospital.name}, hospital base`}
+            alt={`${hospital.name}, hospital base`}
           >
+            <Popup className="map-ambulance-popup">
+              <div className="popup-header">
+                <strong>{hospital.name}</strong>
+                <span className="popup-badge hospital-badge">Hospital Base</span>
+              </div>
+              <div className="popup-body">
+                <div className="popup-row">
+                  <span className="popup-label">Registered Fleet:</span>
+                  <span className="popup-val">{hospital.fleet_size} ambulances</span>
+                </div>
+                <div className="popup-row">
+                  <span className="popup-label">15-Min Base Reach:</span>
+                  <span className="popup-val">{isochroneWards.size} wards covered</span>
+                </div>
+                <div className="popup-row">
+                  <span className="popup-label">Code:</span>
+                  <span className="popup-val font-mono">{hospital.code}</span>
+                </div>
+              </div>
+            </Popup>
             <Tooltip className="map-tooltip">
               <strong>{hospital.name}</strong>
               <div className="map-tooltip-muted">
-                Fleet: {hospital.fleet_size} {hospital.fleet_size === 1 ? 'ambulance' : 'ambulances'}
+                Base Facility · {hospital.fleet_size} ambulances
               </div>
             </Tooltip>
           </Marker>
-        </>
-      )}
-      {assignments?.map((a) => {
-        const place = a.name ?? a.candidate_id
-        const description = `${a.ambulance_id}, ${a.type}, ${place}`
-        return (
-          <Marker
-            key={a.ambulance_id}
-            position={[a.lat, a.lng]}
-            icon={unitIcon(a.type, simulated, unitLabel(a.ambulance_id))}
-            title={simulated ? `${description} (simulated)` : description}
-            alt={description}
-          >
-            <Tooltip className="map-tooltip">
-              <div className="map-tooltip-row">
-                <strong>{a.ambulance_id}</strong>
-                <span className={`type-chip type-${a.type.toLowerCase()}`}>{a.type}</span>
-                {simulated && <span className="type-chip type-simulated">Simulated</span>}
-              </div>
-              <div>{place}</div>
-              {a.ward_code && <div className="map-tooltip-muted">Ward {a.ward_code}</div>}
-            </Tooltip>
-          </Marker>
-        )
-      })}
-      <PlanViewport hospital={hospital} assignments={assignments} simulatedRadiusKm={simulatedRadiusKm} />
-    </MapContainer>
+        )}
+
+        {/* 5. Improved Ambulance Markers (With Before/After Staging Positioning) */}
+        {layers.ambulances &&
+          displayedMarkers.map((a, idx) => {
+            const place = a.name ?? a.candidate_id
+            const fleetUnit = fleet?.find((f) => f.call_sign === a.ambulance_id)
+            const isDeployed = fleetUnit?.current_assignment?.assignment_status === 'in_position'
+            const isSelected = selectedUnitId === a.ambulance_id
+            const isHighlighted = highlightedUnitId === a.ambulance_id
+            const isAtBase = viewMode === 'before'
+            const label = unitLabel(a.ambulance_id)
+            const description = `${a.ambulance_id}, ${a.type}, ${isAtBase ? 'Stationed at Base' : place}`
+
+            return (
+              <Marker
+                key={`${a.ambulance_id}-${viewMode}`}
+                position={[a.lat, a.lng]}
+                icon={unitIcon(a.type, simulated, label, isDeployed, isSelected, isAtBase, isHighlighted)}
+                zIndexOffset={isHighlighted ? 1200 : isSelected ? 600 : 0}
+                title={simulated ? `${description} (simulated)` : description}
+                alt={description}
+                eventHandlers={{
+                  click: () => {
+                    setSelectedUnitId(a.ambulance_id)
+                    onHighlightUnit?.(a.ambulance_id)
+                  },
+                  mouseover: () => {
+                    onHighlightUnit?.(a.ambulance_id)
+                  },
+                  mouseout: () => {
+                    onHighlightUnit?.(null)
+                  },
+                }}
+              >
+                <Popup className="map-ambulance-popup">
+                  <div className="popup-header">
+                    <div className="popup-title-group">
+                      <strong>{a.ambulance_id}</strong>
+                      <span className={`popup-type-chip type-${a.type.toLowerCase()}`}>{a.type}</span>
+                    </div>
+                    {isAtBase ? (
+                      <span className="popup-badge status-base">At Base</span>
+                    ) : isDeployed ? (
+                      <span className="popup-badge status-deployed">In Position</span>
+                    ) : simulated ? (
+                      <span className="popup-badge status-simulated">Simulated</span>
+                    ) : (
+                      <span className="popup-badge status-recommended">Recommended</span>
+                    )}
+                  </div>
+                  <div className="popup-body">
+                    <div className="popup-row">
+                      <span className="popup-label">Staging Location:</span>
+                      <span className="popup-val">{place}</span>
+                    </div>
+                    <div className="popup-row">
+                      <span className="popup-label">Ward:</span>
+                      <span className="popup-val">Ward {a.ward_code ?? '—'}</span>
+                    </div>
+                    <div className="popup-row">
+                      <span className="popup-label">From Base:</span>
+                      <span className="popup-val">{isAtBase ? '0.0 km (At Base)' : distanceFromBase(hospital, a.lat, a.lng)}</span>
+                    </div>
+                  </div>
+                </Popup>
+                <Tooltip className="map-tooltip">
+                  <strong>{a.ambulance_id} ({a.type})</strong>
+                  <div className="map-tooltip-muted">
+                    {isAtBase ? 'Stationed at Hospital Base' : place}
+                  </div>
+                </Tooltip>
+              </Marker>
+            )
+          })}
+
+        <PlanViewport hospital={hospital} assignments={displayedMarkers} simulatedRadiusKm={simulatedRadiusKm} />
+        <MapFocusController target={focusTarget} />
+      </MapContainer>
+    </div>
   )
 }

@@ -6,6 +6,7 @@ Run from inside the backend/ folder:
 
 import hmac
 import ipaddress
+import json
 import logging
 import os
 import random
@@ -14,7 +15,7 @@ import time as clock
 from collections import defaultdict, deque
 import unicodedata
 from contextlib import asynccontextmanager
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import List, Literal, Optional
 from zoneinfo import ZoneInfo
@@ -58,6 +59,22 @@ RISK_SCORE_COL = "risk_score"
 # Runs plan for "today" in Mumbai's time zone, one hour-long window per run.
 PLANNING_TZ = ZoneInfo("Asia/Kolkata")
 MODEL_VERSION = "v1"
+
+# Shared constants: demand level thresholds and demand-around-you
+DEMAND_THRESHOLD_HIGH = 0.46
+DEMAND_THRESHOLD_MEDIUM = 0.20
+NEARBY_MAX_MINUTES = 12
+NEARBY_LIMIT = 3
+DEMAND_NOTE = "Modelled demand by ward, not live calls"
+
+
+def classify_demand_level(risk_score: float) -> str:
+    """Classify ward demand: High > 0.46, Medium 0.20 to 0.46, Low below."""
+    if risk_score > DEMAND_THRESHOLD_HIGH:
+        return "High"
+    if risk_score >= DEMAND_THRESHOLD_MEDIUM:
+        return "Medium"
+    return "Low"
 
 logger = logging.getLogger(__name__)
 
@@ -384,6 +401,7 @@ def _run_summary(run) -> dict:
         "num_ambulances": run.num_ambulances,
         "total_weighted_score": run.total_weighted_score,
         "error_message": run.error_message,
+        "avg_response_min": None,
     }
 
 
@@ -846,6 +864,99 @@ def update_assignment_status(
     }
 
 
+@app.get("/ambulances/{call_sign}/hotspots")
+def get_ambulance_hotspots(
+    call_sign: str,
+    hospital=Depends(get_hospital),
+    db: Session = Depends(get_db),
+):
+    """Demand around this ambulance's current staging position, using travel-time minutes."""
+    if "error" in data or "risk_scores" not in data or "travel_times" not in data:
+        raise HTTPException(status_code=503, detail=data.get("error", f"Missing data files in {DATA_DIR}"))
+
+    try:
+        ambulance = _require_hospital_ambulance(db, hospital, call_sign)
+        assignment = _current_assignments(db, hospital, [ambulance.ambulance_id]).get(ambulance.ambulance_id)
+    except SQLAlchemyError as exc:
+        raise _db_unavailable(exc)
+
+    if assignment is None:
+        raise HTTPException(status_code=404, detail="No current assignment")
+
+    # Resolve ward from candidate_lookup.
+    cand_id = str(assignment.candidate_id)
+    lookup = data.get("candidate_lookup", {}).get(cand_id, {})
+    unit_ward = lookup.get("ward_code")
+    if not unit_ward:
+        raise HTTPException(status_code=404, detail=f"Candidate position not found: {cand_id}")
+
+    # hour = valid_from converted to Asia/Kolkata, .hour.
+    valid_from = assignment.valid_from
+    if valid_from.tzinfo is None:
+        valid_from = valid_from.replace(tzinfo=timezone.utc)
+    hour = valid_from.astimezone(PLANNING_TZ).hour
+
+    # Risk scores for this hour, keyed by ward.
+    risk = data["risk_scores"]
+    hour_rows = risk[risk[RISK_HOUR_COL] == hour]
+    if hour_rows.empty:
+        raise HTTPException(status_code=404, detail=f"No risk scores found for hour {hour}")
+    risk_by_ward = {
+        _clean(ward): float(score)
+        for ward, score in zip(hour_rows[RISK_WARD_COL], hour_rows[RISK_SCORE_COL])
+    }
+
+    # Travel-time row for this candidate (minutes to each ward).
+    tt = data["travel_times"]
+    if cand_id not in tt.index:
+        raise HTTPException(status_code=404, detail=f"No travel times for candidate {cand_id}")
+    tt_row = tt.loc[cand_id]
+
+    own_score = risk_by_ward.get(unit_ward, 0.0)
+    own_ward_payload = {
+        "ward_code": unit_ward,
+        "demand_level": classify_demand_level(own_score),
+        "risk_score": own_score,
+    }
+
+    # Nearby: other wards within NEARBY_MAX_MINUTES, sorted by risk_score desc then minutes asc.
+    nearby = []
+    nearest_high: dict | None = None
+    nearest_high_minutes: float | None = None
+    for ward_code_raw in tt_row.index:
+        ward_code = str(ward_code_raw)
+        if ward_code == unit_ward:
+            continue
+        raw_minutes = tt_row[ward_code_raw]
+        try:
+            minutes_float = float(raw_minutes)
+        except (TypeError, ValueError):
+            continue
+        if minutes_float > NEARBY_MAX_MINUTES:
+            continue
+        score = risk_by_ward.get(ward_code, 0.0)
+        level = classify_demand_level(score)
+        minutes_int = round(minutes_float)
+        nearby.append({
+            "ward_code": ward_code,
+            "minutes": minutes_int,
+            "demand_level": level,
+            "risk_score": score,
+        })
+        if level == "High" and (nearest_high_minutes is None or minutes_float < nearest_high_minutes):
+            nearest_high = {"ward_code": ward_code, "minutes": minutes_int}
+            nearest_high_minutes = minutes_float
+
+    nearby.sort(key=lambda h: (-h["risk_score"], h["minutes"]))
+    return {
+        "hour": hour,
+        "own_ward": own_ward_payload,
+        "nearby": nearby[:NEARBY_LIMIT],
+        "nearest_high": nearest_high,
+        "note": DEMAND_NOTE,
+    }
+
+
 @app.get("/demand-scores")
 def demand_scores(hour: int = Query(..., ge=0, le=23, description="Hour of day (0-23)")):
     if "error" in data:
@@ -1029,7 +1140,23 @@ def list_runs(
         ).all()
     except SQLAlchemyError as exc:
         raise _db_unavailable(exc)
-    return [_run_summary(r) for r in runs]
+    results = []
+    for r in runs:
+        summary = _run_summary(r)
+        avg_min = None
+        if r.status == models.RunStatus.succeeded and "error" not in data:
+            try:
+                chosen = [p.candidate_id for p in r.positions]
+                unit_types = [a.ambulance.type.value for a in r.assignments if a.ambulance]
+                if chosen:
+                    kpis = _plan_kpis(r.target_hour, hospital.lat, hospital.lng, chosen, unit_types)
+                    if kpis and kpis.get("avg_response_min"):
+                        avg_min = round(float(kpis["avg_response_min"]["after"]), 1)
+            except Exception:
+                pass
+        summary["avg_response_min"] = avg_min
+        results.append(summary)
+    return results
 
 
 @app.get("/runs/{run_id}")
