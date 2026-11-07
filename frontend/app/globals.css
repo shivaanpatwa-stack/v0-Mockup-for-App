@@ -1,4 +1,4 @@
-@import 'tailwindcss';
+/* No Tailwind: the app is styled only by the tokens and classes in this file. */
 
 /* =====================================================================================
    Tokens (docs/ux/plan.md section 2). Dark control-room app by default; the landing page
@@ -9,8 +9,9 @@
   --canvas: #111413;
   --surface: #181c1b;
   --raised: #21262a;
-  --hairline: rgba(232, 235, 233, 0.1);
-  --hairline-strong: rgba(232, 235, 233, 0.18);
+  /* Relative to the ink colour, so both themes get a low-alpha 1px hairline. */
+  --hairline: rgb(from var(--ink) r g b / 0.1);
+  --hairline-strong: rgb(from var(--ink) r g b / 0.18);
   --ink: #e8ebe9;
   --ink-muted: #9aa3a0;
   --ink-faint: #6f7975;
@@ -68,9 +69,9 @@
   --canvas: #f7f8f6;
   --surface: #ffffff;
   --raised: #eef0ed;
-  --hairline: rgba(22, 25, 26, 0.1);
-  --hairline-strong: rgba(22, 25, 26, 0.2);
   --ink: #16191a;
+  --hairline: rgb(from var(--ink) r g b / 0.1);
+  --hairline-strong: rgb(from var(--ink) r g b / 0.2);
   --ink-muted: #5b6460;
   --ink-faint: #7d8682;
   --brand-text: #00714b;
@@ -79,11 +80,28 @@
   color-scheme: light;
 }
 
-/* ---------- Base ---------- */
+/* ---------- Base (small reset) ---------- */
 *,
 *::before,
 *::after {
   box-sizing: border-box;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+img {
+  max-width: 100%;
+}
+ul,
+ol {
+  margin: 0;
+}
+dialog {
+  color: inherit;
 }
 html,
 body {
@@ -449,6 +467,7 @@ input[type='range'].range::-moz-range-thumb {
 .wordmark {
   display: inline-flex;
   align-items: center;
+  min-height: 28px;
   gap: var(--s-2);
   color: var(--ink);
   font: 600 var(--fs-14) var(--font-display);
@@ -1013,6 +1032,9 @@ input[type='range'].range::-moz-range-thumb {
   border-top: 1px solid var(--hairline);
 }
 .layer-toggles input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
   accent-color: var(--brand);
 }
 .map-legend {
@@ -1141,7 +1163,7 @@ input[type='range'].range::-moz-range-thumb {
 .scrubber-ticks {
   display: flex;
   justify-content: space-between;
-  color: var(--ink-faint);
+  color: var(--ink-muted);
   font: var(--fs-12) var(--font-mono);
 }
 .scrubber-hour {
@@ -1295,7 +1317,7 @@ input[type='range'].range::-moz-range-thumb {
 .knob-ends {
   display: flex;
   justify-content: space-between;
-  color: var(--ink-faint);
+  color: var(--ink-muted);
 }
 .stepper {
   display: flex;
@@ -1522,6 +1544,7 @@ input[type='range'].range::-moz-range-thumb {
 .sort-btn {
   display: inline-flex;
   align-items: center;
+  min-height: 24px;
   gap: 4px;
   padding: 0;
   border: 0;
@@ -1636,8 +1659,9 @@ input[type='range'].range::-moz-range-thumb {
 
 /* ---------- Map internals (Leaflet) ---------- */
 .leaflet-control-attribution {
-  background: rgba(17, 20, 19, 0.75) !important;
-  color: var(--ink-faint) !important;
+  background: rgba(17, 20, 19, 0.85) !important;
+  color: var(--ink-muted) !important;
+  font-size: var(--fs-12) !important;
 }
 .leaflet-control-attribution a {
   color: var(--ink-muted) !important;
@@ -2097,6 +2121,9 @@ input[type='range'].range::-moz-range-thumb {
   font-size: var(--fs-14);
 }
 .landing-nav .links a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
   color: var(--ink-muted);
   text-decoration: none;
 }
@@ -2372,5 +2399,65 @@ input[type='range'].range::-moz-range-thumb {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+}
+
+/* ---------- Phone tightening (390px) ---------- */
+@media (max-width: 600px) {
+  .topbar {
+    gap: var(--s-2);
+    padding: 0 var(--s-2);
+  }
+  .topbar .status-live,
+  .topbar .status {
+    font-size: 0;
+    gap: 0;
+  }
+  .topbar .status .dot {
+    width: 8px;
+    height: 8px;
+  }
+  .search-btn kbd {
+    display: none;
+  }
+  .hospital-chip {
+    max-width: 120px;
+  }
+  .map-side-controls {
+    display: none;
+  }
+  .map-toolbar .btn kbd {
+    display: none;
+  }
+  .scrubber {
+    top: 104px;
+    bottom: auto;
+    grid-template-columns: auto 1fr auto;
+    padding: 4px 8px;
+  }
+  .scrubber-track {
+    height: 34px;
+  }
+  .scrubber-hour {
+    min-width: 48px;
+    font-size: var(--fs-14);
+  }
+  .moves {
+    max-height: 40%;
+  }
+  .result-panel {
+    width: calc(100vw - 24px);
+  }
+  .map-wrap .leaflet-control-zoom {
+    display: none;
+  }
+}
+@media (max-width: 860px) {
+  .landing-nav .links a:not(:last-child) {
+    display: none;
+  }
+  /* Text sits over the city on narrow screens: dim the map so white text keeps AA contrast. */
+  .band canvas {
+    opacity: 0.35;
   }
 }
