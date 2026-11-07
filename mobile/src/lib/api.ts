@@ -37,6 +37,31 @@ export type FleetUnit = {
 
 export type DemandScore = { ward_code: string; risk_score: number }
 
+export type DemandLevel = 'High' | 'Medium' | 'Low'
+
+export type OwnWard = {
+  ward_code: string
+  demand_level: DemandLevel
+  risk_score: number
+}
+
+export type NearbyWard = {
+  ward_code: string
+  minutes: number
+  demand_level: DemandLevel
+  risk_score: number
+}
+
+export type NearestHigh = { ward_code: string; minutes: number } | null
+
+export type DemandAroundYouResponse = {
+  hour: number
+  own_ward: OwnWard
+  nearby: NearbyWard[]
+  nearest_high: NearestHigh
+  note: string
+}
+
 export const HOSPITAL_CODE_HEADER = 'X-Hospital-Code'
 export const HOSPITAL_CODE_NOT_FOUND = 'Hospital code not found'
 export const NETWORK_MESSAGE = "Can't reach the server."
@@ -236,6 +261,8 @@ async function request<T>(path: string, { method = 'GET', body, hospitalCode }: 
 export const getHospital = (code?: string) => request<Hospital>('/hospital', { hospitalCode: code })
 export const getFleet = () => request<FleetUnit[]>('/fleet')
 export const getDemandScores = (hour: number) => request<DemandScore[]>(`/demand-scores?hour=${hour}`)
+export const getHotspots = (callSign: string) =>
+  request<DemandAroundYouResponse>(`/ambulances/${encodeURIComponent(callSign)}/hotspots`)
 
 export const setUnitStatus = (callSign: string, status: AmbulanceStatus) =>
   request<unknown>(`/ambulances/${encodeURIComponent(callSign)}/status`, { method: 'PATCH', body: { status } })

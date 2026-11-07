@@ -30,3 +30,8 @@ export function formatWindow(fromIso: string, toIso: string): string {
 
 /** A moment on this device's clock, shown in Asia/Kolkata like every other time in the app. */
 export const formatIstClock = (date: Date) => formatIst(date.toISOString())
+
+export function formatHour(hour: number): string {
+  const h12 = hour % 12 === 0 ? 12 : hour % 12
+  return `${h12} ${hour < 12 ? 'AM' : 'PM'}`
+}

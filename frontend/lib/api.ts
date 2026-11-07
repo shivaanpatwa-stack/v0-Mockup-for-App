@@ -242,6 +242,7 @@ export type RunSummary = {
   num_ambulances: number
   total_weighted_score: number | null
   error_message: string | null
+  avg_response_min?: number | null
 }
 
 /** A saved run in the same shape as a live OptimizeResult, plus what it saved. */

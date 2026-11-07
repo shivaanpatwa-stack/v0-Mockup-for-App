@@ -1,0 +1,27 @@
+{
+  "A": "Colaba, Fort, Churchgate, Nariman Point",
+  "B": "Dongri, Mohammed Ali Road, Mandvi, Bhendi Bazaar",
+  "C": "Marine Lines, Bhuleshwar, Pydhonie, Girgaon",
+  "D": "Grant Road, Malabar Hill, Girgaon, Walkeshwar, Tardeo",
+  "E": "Byculla, Mazgaon, Nagpada, Madanpura",
+  "F/S": "Parel, Lalbaug, Sewri, Naigaon",
+  "F/N": "Matunga, Sion, Wadala",
+  "G/S": "Worli, Prabhadevi, Lower Parel, Mahalaxmi",
+  "G/N": "Dadar, Mahim, Dharavi",
+  "H/E": "Bandra East, Santacruz East, Khar East, Vakola",
+  "H/W": "Bandra West, Khar, Santacruz West",
+  "K/E": "Andheri East, Jogeshwari East, Vile Parle East",
+  "K/W": "Andheri West, Juhu, Versova, Vile Parle West",
+  "P/S": "Goregaon, Aarey",
+  "P/N": "Malad, Dindoshi, Marve",
+  "R/S": "Kandivali",
+  "R/C": "Borivali",
+  "R/N": "Dahisar",
+  "L": "Kurla, Chandivali",
+  "M/E": "Govandi, Mankhurd, Chembur East",
+  "M/W": "Chembur, Tilak Nagar",
+  "N": "Ghatkopar, Vidyavihar",
+  "S": "Bhandup, Kanjurmarg, Powai, Vikhroli",
+  "T": "Mulund, Nahur"
+}
+

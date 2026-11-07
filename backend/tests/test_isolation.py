@@ -35,6 +35,7 @@ DRIVER_ENDPOINTS = [
     ("GET", "/fleet", None),
     ("PATCH", "/ambulances/U1/status", {"status": "available"}),
     ("PATCH", "/ambulances/U1/assignment-status", {"status": "en_route"}),
+    ("GET", "/ambulances/U1/hotspots", None),
 ]
 ADMIN_ENDPOINTS = [
     ("PATCH", "/hospital", {"name": "Renamed"}),
