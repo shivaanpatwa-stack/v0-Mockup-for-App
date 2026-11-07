@@ -429,8 +429,14 @@ def _compute_plan(
     hour: int,
     min_spacing_km: float,
     max_response_minutes: float,
+    risk_scores: Optional[pd.DataFrame] = None,
+    travel_times: Optional[pd.DataFrame] = None,
+    candidates: Optional[gpd.GeoDataFrame] = None,
 ) -> dict:
     """Place and assign `ambulances` ({"id", "type"} dicts) for one hour. Never touches the database.
+
+    risk_scores / travel_times / candidates default to the loaded data files. What-if scenarios pass
+    adjusted copies (demand surge, slower roads, closed positions); the optimizer itself is unchanged.
 
     Returns the /optimize result fields (chosen_candidates, total_weighted_score, the coverage
     fields, details, assignments). Raises PlanError for anything /optimize answers with an error.
@@ -439,7 +445,11 @@ def _compute_plan(
     if num_ambulances < 1:
         raise PlanError(400, "No ambulances in service")
 
-    nearby = filter_candidates_by_radius(data["candidates"], hospital_lat, hospital_lng, operating_radius_km)
+    risk_scores = data["risk_scores"] if risk_scores is None else risk_scores
+    travel_times = data["travel_times"] if travel_times is None else travel_times
+    candidates = data["candidates"] if candidates is None else candidates
+
+    nearby = filter_candidates_by_radius(candidates, hospital_lat, hospital_lng, operating_radius_km)
     if len(nearby) < num_ambulances:
         raise PlanError(
             400,
@@ -452,13 +462,13 @@ def _compute_plan(
             ),
         )
 
-    risk = data["risk_scores"]
+    risk = risk_scores
     hour_rows = risk[risk[RISK_HOUR_COL] == hour]
     if hour_rows.empty:
         raise PlanError(404, f"No risk scores found for hour {hour}")
     zone_scores = dict(zip(hour_rows[RISK_WARD_COL], hour_rows[RISK_SCORE_COL]))
 
-    scored = calculate_weighted_scores(nearby, data["travel_times"], zone_scores)
+    scored = calculate_weighted_scores(nearby, travel_times, zone_scores)
 
     try:
         # Also returns coverage_guaranteed, max_response_minutes, uncoverable_wards, uncovered_wards.
@@ -466,7 +476,7 @@ def _compute_plan(
             scored,
             num_ambulances,
             min_spacing_km,
-            travel_times=data["travel_times"],
+            travel_times=travel_times,
             max_response_minutes=max_response_minutes,
             zone_scores=zone_scores,   # enables ward-coverage diversity bonus
             coverage_weight=0.5,       # 50 % quality, 50 % geographic spread
@@ -493,7 +503,13 @@ def _compute_plan(
     except ValueError as exc:
         raise PlanError(422, str(exc))
     result["kpis"] = _plan_kpis(
-        hour, hospital_lat, hospital_lng, result["chosen_candidates"], [a["type"] for a in result["assignments"]]
+        hour,
+        hospital_lat,
+        hospital_lng,
+        result["chosen_candidates"],
+        [a["type"] for a in result["assignments"]],
+        risk_scores=risk_scores,
+        travel_times=travel_times,
     )
     return result
 
@@ -506,9 +522,18 @@ def _nearest_candidate(lat: float, lng: float) -> tuple[str, float]:
     )
 
 
-def _plan_kpis(hour: int, hospital_lat: float, hospital_lng: float, chosen_ids: list, unit_types: list) -> Optional[dict]:
+def _plan_kpis(
+    hour: int,
+    hospital_lat: float,
+    hospital_lng: float,
+    chosen_ids: list,
+    unit_types: list,
+    risk_scores: Optional[pd.DataFrame] = None,
+    travel_times: Optional[pd.DataFrame] = None,
+) -> Optional[dict]:
     """services.kpis numbers for a placement; "before" = every unit at the candidate nearest the hospital."""
-    risk = data["risk_scores"]
+    risk = data["risk_scores"] if risk_scores is None else risk_scores
+    travel_times = data["travel_times"] if travel_times is None else travel_times
     hour_rows = risk[risk[RISK_HOUR_COL] == hour]
     if hour_rows.empty or not chosen_ids:
         return None
@@ -516,7 +541,7 @@ def _plan_kpis(hour: int, hospital_lat: float, hospital_lng: float, chosen_ids: 
     base_id, base_km = _nearest_candidate(hospital_lat, hospital_lng)
     multiplier = hour_rows["time_multiplier"].iloc[0] if "time_multiplier" in hour_rows else None
     return compute_kpis(
-        data["travel_times"],
+        travel_times,
         dict(zip(hour_rows[RISK_WARD_COL], hour_rows[RISK_SCORE_COL])),
         chosen_ids,
         base_id,
@@ -1218,3 +1243,332 @@ def get_run(run_id: int, hospital=Depends(require_admin), db: Session = Depends(
             for a, amb in assignments
         ],
     }
+
+
+# ======================================================================================
+# What-if scenarios, saved scenarios, run history and restore.
+# Additive only (approved 2026-11-07): new endpoints, the saved_scenarios table and two nullable
+# optimization_runs columns (migrations/2026_11_07_scenarios_up.sql). Existing endpoints and the
+# optimizer are unchanged; the knobs below only adjust the optimizer's INPUTS for one request.
+# ======================================================================================
+
+SCENARIO_MAX_CLOSED = 50
+
+
+class ScenarioRequest(SimulationRequest):
+    # Demand surge: multiplies the predicted risk score of the chosen wards (all wards if None).
+    demand_multiplier: float = Field(default=1.0, ge=0.5, le=3.0)
+    demand_wards: Optional[List[str]] = Field(default=None, max_length=24)
+    # Road speed: multiplies every travel time (1.4 = trips take 40% longer).
+    travel_time_multiplier: float = Field(default=1.0, ge=1.0, le=3.0)
+    # Candidate staging positions (hospitals, stations...) taken out for this scenario only.
+    closed_candidates: List[str] = Field(default_factory=list, max_length=SCENARIO_MAX_CLOSED)
+
+
+def _pct(multiplier: float) -> int:
+    return round(abs(multiplier - 1) * 100)
+
+
+def _scenario_inputs(req: ScenarioRequest) -> tuple[pd.DataFrame, pd.DataFrame, gpd.GeoDataFrame, list[str]]:
+    """Copies of the data files with the scenario's knobs applied, plus plain-English assumptions."""
+    assumptions: list[str] = []
+    risk = data["risk_scores"].copy()
+    if req.demand_multiplier != 1.0:
+        wards = set(req.demand_wards) if req.demand_wards else None
+        mask = risk[RISK_WARD_COL].isin(wards) if wards else slice(None)
+        risk.loc[mask, RISK_SCORE_COL] = risk.loc[mask, RISK_SCORE_COL] * req.demand_multiplier
+        where = f"in {', '.join(sorted(wards))}" if wards else "in every ward"
+        more = "higher" if req.demand_multiplier > 1 else "lower"
+        assumptions.append(f"Assumes predicted demand {_pct(req.demand_multiplier)}% {more} {where}")
+    travel = data["travel_times"]
+    if req.travel_time_multiplier != 1.0:
+        travel = travel * req.travel_time_multiplier
+        assumptions.append(f"Assumes travel times {_pct(req.travel_time_multiplier)}% slower")
+    candidates = data["candidates"]
+    if req.closed_candidates:
+        closed = {str(c) for c in req.closed_candidates}
+        names = [
+            data["candidate_lookup"].get(c, {}).get("name") or c for c in sorted(closed) if c in data["candidate_lookup"]
+        ]
+        candidates = candidates[~candidates["candidate_id"].astype(str).isin(closed)]
+        if names:
+            assumptions.append(f"Assumes closed: {', '.join(names)}")
+    return risk, travel, candidates, assumptions
+
+
+def _scenario_params(req: ScenarioRequest, hospital, num_ambulances: int, synthetic: int) -> dict:
+    return {
+        "hour": req.hour,
+        "num_ambulances": num_ambulances,
+        "operating_radius_km": req.operating_radius_km or hospital.operating_radius_km,
+        "min_spacing_km": 2.0 if req.min_spacing_km is None else req.min_spacing_km,
+        "max_response_minutes": req.max_response_minutes or 20.0,
+        "synthetic_ambulances": synthetic,
+        "demand_multiplier": req.demand_multiplier,
+        "demand_wards": req.demand_wards,
+        "travel_time_multiplier": req.travel_time_multiplier,
+        "closed_candidates": req.closed_candidates,
+    }
+
+
+def _run_scenario(req: ScenarioRequest, hospital, ambulances: list[dict], synthetic: int) -> dict:
+    risk, travel, candidates, assumptions = _scenario_inputs(req)
+    params = _scenario_params(req, hospital, len(ambulances), synthetic)
+    try:
+        result = _compute_plan(
+            hospital_name=hospital.name,
+            hospital_lat=hospital.lat,
+            hospital_lng=hospital.lng,
+            operating_radius_km=params["operating_radius_km"],
+            ambulances=ambulances,
+            hour=req.hour,
+            min_spacing_km=params["min_spacing_km"],
+            max_response_minutes=params["max_response_minutes"],
+            risk_scores=risk,
+            travel_times=travel,
+            candidates=candidates,
+        )
+    except PlanError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+    return {**result, "simulated": True, "parameters": params, "assumptions": assumptions}
+
+
+def _scenario_fleet(db: Session, hospital):
+    if "error" in data:
+        raise HTTPException(status_code=503, detail=data["error"])
+    try:
+        fleet = _hospital_fleet(db, hospital.hospital_id)
+    except SQLAlchemyError as exc:
+        raise _db_unavailable(exc)
+    in_service = [{"id": a.call_sign, "type": a.type.value} for a in _in_service(fleet)]
+    if not in_service:
+        raise HTTPException(status_code=400, detail="No ambulances in service")
+    return fleet, in_service
+
+
+@app.post("/scenarios/simulate")
+def simulate_scenario(request: ScenarioRequest, hospital=Depends(require_admin), db: Session = Depends(get_db)):
+    """/simulate plus the scenario knobs. Reads only: nothing is saved or changed."""
+    _, in_service = _scenario_fleet(db, hospital)
+    n = request.num_ambulances or len(in_service)
+    ambulances = in_service[:n] + [{"id": f"SIM-{i:02d}", "type": "BLS"} for i in range(1, n - len(in_service) + 1)]
+    return _run_scenario(request, hospital, ambulances, max(0, n - len(in_service)))
+
+
+@app.post("/scenarios/apply")
+def apply_scenario(request: ScenarioRequest, hospital=Depends(require_admin), db: Session = Depends(get_db)):
+    """Use a scenario as the staging plan: same calculation as /scenarios/simulate, saved as a run."""
+    fleet, in_service = _scenario_fleet(db, hospital)
+    n = request.num_ambulances or len(in_service)
+    if n > len(in_service):
+        raise HTTPException(
+            status_code=400,
+            detail=f"This scenario uses {n - len(in_service)} simulated unit(s), so it can't become the real plan",
+        )
+    result = _run_scenario(request, hospital, in_service[:n], 0)
+    target_date, window_start, window_end = _planning_window(request.hour)
+    run_fields = dict(
+        hospital=hospital, target_date=target_date, hour=request.hour,
+        min_spacing_km=result["parameters"]["min_spacing_km"], num_ambulances=n,
+    )
+    try:
+        run_id = _save_run_history(db, result, fleet, window_start, window_end, **run_fields)
+        _tag_run(db, run_id, "what_if", {**result["parameters"], "assumptions": result["assumptions"]})
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise _db_unavailable(exc)
+    return {**result, "simulated": False, "run_id": run_id}
+
+
+def _tag_run(db: Session, run_id: int, trigger: str, parameters: Optional[dict]) -> None:
+    db.execute(
+        update(models.OptimizationRun)
+        .where(models.OptimizationRun.run_id == run_id)
+        .values(run_trigger=trigger, scenario_parameters=parameters)
+    )
+    db.commit()
+
+
+@app.get("/candidates")
+def list_candidates(
+    radius_km: Optional[float] = Query(None, gt=0, le=50),
+    hospital=Depends(require_admin),
+):
+    """Candidate staging positions within the hospital's radius (for closing one in a scenario)."""
+    if "error" in data:
+        raise HTTPException(status_code=503, detail=data["error"])
+    nearby = filter_candidates_by_radius(
+        data["candidates"], hospital.lat, hospital.lng, radius_km or hospital.operating_radius_km
+    )
+    lookup = data["candidate_lookup"]
+    return [
+        {"candidate_id": str(cid), **lookup.get(str(cid), {})}
+        for cid in nearby["candidate_id"].astype(str)
+    ]
+
+
+class ScenarioSave(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    parameters: ScenarioRequest
+    result_summary: Optional[dict] = None
+
+
+def _scenario_out(s: models.SavedScenario) -> dict:
+    return {
+        "scenario_id": s.scenario_id,
+        "name": s.name,
+        "parameters": s.parameters,
+        "result_summary": s.result_summary,
+        "created_at": s.created_at,
+    }
+
+
+@app.get("/scenarios")
+def list_scenarios(hospital=Depends(require_admin), db: Session = Depends(get_db)):
+    try:
+        rows = db.scalars(
+            select(models.SavedScenario)
+            .where(models.SavedScenario.hospital_id == hospital.hospital_id)
+            .order_by(models.SavedScenario.created_at.desc())
+            .limit(100)
+        ).all()
+    except SQLAlchemyError as exc:
+        raise _db_unavailable(exc)
+    return [_scenario_out(s) for s in rows]
+
+
+@app.post("/scenarios", status_code=201)
+def save_scenario(body: ScenarioSave, hospital=Depends(require_admin), db: Session = Depends(get_db)):
+    summary = body.result_summary
+    if summary is not None and len(json.dumps(summary)) > 4000:
+        raise HTTPException(status_code=422, detail="result_summary is too large")
+    row = models.SavedScenario(
+        hospital_id=hospital.hospital_id,
+        name=body.name.strip(),
+        parameters=body.parameters.model_dump(),
+        result_summary=summary,
+    )
+    try:
+        db.add(row)
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise _db_unavailable(exc)
+    return _scenario_out(row)
+
+
+@app.delete("/scenarios/{scenario_id}", status_code=204)
+def delete_scenario(scenario_id: int, hospital=Depends(require_admin), db: Session = Depends(get_db)):
+    try:
+        row = db.get(models.SavedScenario, scenario_id)
+        if row is None or row.hospital_id != hospital.hospital_id:
+            raise HTTPException(status_code=404, detail=f"No scenario {scenario_id} for the active hospital")
+        db.delete(row)
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise _db_unavailable(exc)
+
+
+@app.get("/run-history")
+def run_history(
+    limit: int = Query(25, ge=1, le=100),
+    hospital=Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Runs with what the Run history page needs: trigger, inputs, before/after KPIs, units moved."""
+    from sqlalchemy.orm import selectinload
+
+    try:
+        runs = db.scalars(
+            select(models.OptimizationRun)
+            .where(models.OptimizationRun.hospital_id == hospital.hospital_id)
+            .options(
+                selectinload(models.OptimizationRun.positions),
+                selectinload(models.OptimizationRun.assignments).selectinload(models.AmbulanceAssignment.ambulance),
+            )
+            .order_by(models.OptimizationRun.created_at.desc(), models.OptimizationRun.run_id.desc())
+            .limit(limit + 1)  # one extra, to count moves for the oldest row shown
+        ).all()
+    except SQLAlchemyError as exc:
+        raise _db_unavailable(exc)
+
+    def placement(r) -> dict:
+        return {a.ambulance.call_sign: a.candidate_id for a in r.assignments if a.ambulance}
+
+    succeeded = [r for r in runs if r.status == models.RunStatus.succeeded]
+    previous = {succeeded[i].run_id: succeeded[i + 1] for i in range(len(succeeded) - 1)}
+    out = []
+    for r in runs[:limit]:
+        row = {
+            **_run_summary(r),
+            "trigger": r.run_trigger or "manual",
+            "scenario_parameters": r.scenario_parameters,
+            "min_spacing_km": r.min_spacing_km,
+            "operating_radius_km": r.operating_radius_km,
+            "kpis": None,
+            "units_moved": None,
+        }
+        if r.status == models.RunStatus.succeeded and "error" not in data:
+            chosen = [p.candidate_id for p in r.positions]
+            types = [a.ambulance.type.value for a in r.assignments if a.ambulance]
+            try:
+                row["kpis"] = _plan_kpis(r.target_hour, hospital.lat, hospital.lng, chosen, types) if chosen else None
+            except Exception:
+                logger.exception("KPIs for run %s failed", r.run_id)
+            if row["kpis"] and row["kpis"].get("avg_response_min"):
+                row["avg_response_min"] = row["kpis"]["avg_response_min"]["after"]
+            now = placement(r)
+            before = placement(previous[r.run_id]) if r.run_id in previous else {}
+            row["units_moved"] = sum(1 for sign, cand in now.items() if before.get(sign) != cand)
+        out.append(row)
+    return out
+
+
+@app.post("/runs/{run_id}/restore")
+def restore_run(run_id: int, hospital=Depends(require_admin), db: Session = Depends(get_db)):
+    """Make an earlier run's positions the current plan again, saved as a new run (trigger "restore")."""
+    if "error" in data:
+        raise HTTPException(status_code=503, detail=data["error"])
+    try:
+        old = db.get(models.OptimizationRun, run_id)
+        if old is None or old.hospital_id != hospital.hospital_id:
+            raise HTTPException(status_code=404, detail=f"No run {run_id} for the active hospital")
+        if old.status != models.RunStatus.succeeded:
+            raise HTTPException(status_code=400, detail="Only a successful run can be restored")
+        fleet = _hospital_fleet(db, hospital.hospital_id)
+        positions = list(old.positions)
+        old_assignments = list(old.assignments)
+    except SQLAlchemyError as exc:
+        raise _db_unavailable(exc)
+
+    by_db_id = {a.ambulance_id: a for a in _in_service(fleet)}
+    lookup = data["candidate_lookup"]
+    assignments = [
+        {"ambulance_id": by_db_id[a.ambulance_id].call_sign, "type": by_db_id[a.ambulance_id].type.value,
+         "candidate_id": a.candidate_id}
+        for a in old_assignments
+        if a.ambulance_id in by_db_id
+    ]
+    if not assignments:
+        raise HTTPException(status_code=400, detail="None of that run's ambulances are in service now")
+    result = {
+        "total_weighted_score": old.total_weighted_score or 0.0,
+        "details": [
+            {"candidate_id": p.candidate_id, "weighted_score": p.weighted_score, **lookup.get(str(p.candidate_id), {})}
+            for p in positions
+        ],
+        "assignments": assignments,
+    }
+    target_date, window_start, window_end = _planning_window(old.target_hour)
+    run_fields = dict(
+        hospital=hospital, target_date=target_date, hour=old.target_hour,
+        min_spacing_km=old.min_spacing_km, num_ambulances=len(assignments),
+    )
+    try:
+        new_id = _save_run_history(db, result, fleet, window_start, window_end, **run_fields)
+        _tag_run(db, new_id, "restore", {"restored_from": run_id})
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise _db_unavailable(exc)
+    return {"run_id": new_id, "restored_from": run_id, "units": len(assignments)}
