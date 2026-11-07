@@ -177,6 +177,14 @@ kbd {
   color: var(--ink-muted);
 }
 
+/* Tailwind's preflight makes svg display:block; inline icons sit in text here. */
+svg {
+  display: inline-block;
+}
+.leaflet-container svg {
+  display: block;
+}
+
 /* ---------- Controls ---------- */
 .btn {
   display: inline-flex;
