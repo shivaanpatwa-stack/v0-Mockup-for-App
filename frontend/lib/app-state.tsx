@@ -347,14 +347,18 @@ export function movesFor(
   return assignments.map((a) => {
     const prev = previous?.find((p) => p.ambulance_id === a.ambulance_id)
     const live = fleet?.find((f) => f.call_sign === a.ambulance_id)?.current_assignment
+    // A live assignment to this same position that isn't reached yet means the unit still starts
+    // from the hospital; one already in position (or elsewhere) is where it starts from.
+    const sameSpot = live?.candidate_id === a.candidate_id
+    const liveIsStart = live && live.lat != null && live.lng != null && (!sameSpot || live.assignment_status === 'in_position')
     const fromPoint = prev
       ? { lat: prev.lat, lng: prev.lng }
-      : live?.lat != null && live.lng != null
-        ? { lat: live.lat, lng: live.lng }
+      : liveIsStart
+        ? { lat: live!.lat!, lng: live!.lng! }
         : hospital
           ? { lat: hospital.lat, lng: hospital.lng }
           : null
-    const fromLabel = prev ? prev.name ?? prev.candidate_id : live ? live.name ?? live.candidate_id : 'Hospital base'
+    const fromLabel = prev ? prev.name ?? prev.candidate_id : liveIsStart ? live!.name ?? live!.candidate_id : 'Hospital base'
     const to = { lat: a.lat, lng: a.lng }
     return {
       callSign: a.ambulance_id,

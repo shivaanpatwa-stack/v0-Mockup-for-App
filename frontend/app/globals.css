@@ -843,6 +843,9 @@ input[type='range'].range::-moz-range-thumb {
   font-size: var(--fs-12);
 }
 .kpi-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
   font-family: var(--font-mono);
   font-size: var(--fs-12);
   color: var(--ink-muted);
