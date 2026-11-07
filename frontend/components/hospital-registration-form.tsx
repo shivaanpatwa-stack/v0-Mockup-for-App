@@ -165,7 +165,7 @@ export default function HospitalRegistrationForm({ hasSession }: { hasSession: b
             Register a new hospital
           </button>
           <Link href="/app" className="reg-secondary">
-            Back to dashboard
+            Back to the live map
           </Link>
         </div>
       </section>
@@ -187,7 +187,7 @@ export default function HospitalRegistrationForm({ hasSession }: { hasSession: b
         {registration.admin_key && (
           <div className="reg-key-row">
             <CopyCode code={registration.admin_key} label="Dashboard key" className="reg-dashboard-key" />
-            <p className="reg-hint">Needed to sign in to this dashboard. Keep it private.</p>
+            <p className="reg-hint">Needed to sign in on this site. Keep it private.</p>
           </div>
         )}
         <label className="reg-confirm">
@@ -199,7 +199,7 @@ export default function HospitalRegistrationForm({ hasSession }: { hasSession: b
           </p>
         )}
         <button type="button" className="reg-submit" onClick={goToDashboard} disabled={!savedKeys || finishing}>
-          {finishing ? 'Signing in…' : 'Go to dashboard'}
+          {finishing ? 'Signing in…' : 'Open the live map'}
         </button>
       </section>
     )
