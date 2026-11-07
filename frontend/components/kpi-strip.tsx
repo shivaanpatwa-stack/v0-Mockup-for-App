@@ -42,6 +42,8 @@ interface ResponseTimeChartProps {
   onSelectHour?: (hour: number) => void
 }
 
+// Not rendered: see the note in KpiStrip. Kept until old components are removed.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function ResponseTimeChart({
   selectedHour,
   beforeAvg,
@@ -373,15 +375,9 @@ export default function KpiStrip({
         )}
       </div>
 
-      {/* 3. Small Historical Comparison Chart Across 24 Hours */}
-      {avg.after != null && avg.before != null && (
-        <ResponseTimeChart
-          selectedHour={selectedHour}
-          beforeAvg={avg.before}
-          afterAvg={avg.after}
-          onSelectHour={onHourSelect}
-        />
-      )}
+      {/* The 24-hour chart that used to be here was drawn from an invented curve
+          (MUMBAI_HOURLY_CURVE), not from the model, so it showed a second, made-up
+          average response time. Only the backend's KPI value is shown now. */}
 
       {/* 4. Value Propositions Grid (2x2 Prominent Selling Points) */}
       <div className="kpi-grid">
