@@ -1,4 +1,5 @@
 import { DEMAND_DESCRIPTION, type DemandLevel } from '@/lib/map-theme'
+import { DATA_LABEL } from '@/lib/config'
 
 const LEVELS: DemandLevel[] = ['low', 'moderate', 'high', 'very-high']
 
@@ -61,6 +62,7 @@ export default function MapLegend({
           <span>15m Isochrone</span>
         </span>
       </div>
+      <p className="map-legend-note">{DATA_LABEL}. Demand is a modelled risk score per ward, not recorded calls.</p>
     </div>
   )
 }

@@ -2,6 +2,7 @@
 
 import { useId, useState } from 'react'
 import { Activity, Clock, Info, ShieldCheck, TrendingDown, TrendingUp, Zap } from 'lucide-react'
+import { DATA_LABEL, DATA_LABEL_SHORT } from '@/lib/config'
 import type { Kpis, RunSummary } from '@/lib/api'
 
 type Mode = 'live' | 'simulation' | 'past'
@@ -328,6 +329,7 @@ export default function KpiStrip({
           </span>
         </div>
         <span className="kpi-hour-chip">{hourLabel} Target</span>
+        <span className="kpi-data-note" title={DATA_LABEL}>{DATA_LABEL_SHORT}</span>
       </div>
 
       {/* 2. Primary Hero Metric Card: Average Response Time */}

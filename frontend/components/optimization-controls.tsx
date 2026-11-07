@@ -3,34 +3,13 @@
 import { useEffect, useState } from 'react'
 import { CheckCircle2, Loader2, Sparkles, Play, Pause } from 'lucide-react'
 import type { Hospital, RunSummary } from '@/lib/api'
+import { HOURLY_DEMAND } from '@/lib/demand-profile'
 
-// 24-Hour citywide demand profile from ward_hour_risk_scores.csv (min: 5.20 at 4 AM, max: 11.11 at 11 AM)
-export const HOURLY_DEMAND_PROFILE = [
-  { hour: 0, total: 8.34, heightPct: 63, label: '12:00 AM', level: 'moderate' },
-  { hour: 1, total: 8.24, heightPct: 61, label: '01:00 AM', level: 'moderate' },
-  { hour: 2, total: 7.39, heightPct: 50, label: '02:00 AM', level: 'moderate' },
-  { hour: 3, total: 6.42, heightPct: 37, label: '03:00 AM', level: 'low' },
-  { hour: 4, total: 5.20, heightPct: 20, label: '04:00 AM', level: 'low' }, // Overnight trough
-  { hour: 5, total: 5.30, heightPct: 21, label: '05:00 AM', level: 'low' },
-  { hour: 6, total: 5.75, heightPct: 27, label: '06:00 AM', level: 'low' },
-  { hour: 7, total: 6.75, heightPct: 41, label: '07:00 AM', level: 'moderate' },
-  { hour: 8, total: 7.23, heightPct: 48, label: '08:00 AM', level: 'moderate' },
-  { hour: 9, total: 8.83, heightPct: 69, label: '09:00 AM', level: 'moderate' },
-  { hour: 10, total: 10.05, heightPct: 86, label: '10:00 AM', level: 'high' },
-  { hour: 11, total: 11.11, heightPct: 100, label: '11:00 AM', level: 'peak' }, // Daytime peak!
-  { hour: 12, total: 9.99, heightPct: 85, label: '12:00 PM', level: 'high' },
-  { hour: 13, total: 9.25, heightPct: 75, label: '01:00 PM', level: 'moderate' },
-  { hour: 14, total: 8.58, heightPct: 66, label: '02:00 PM', level: 'moderate' },
-  { hour: 15, total: 8.19, heightPct: 60, label: '03:00 PM', level: 'moderate' },
-  { hour: 16, total: 8.93, heightPct: 71, label: '04:00 PM', level: 'moderate' },
-  { hour: 17, total: 9.28, heightPct: 75, label: '05:00 PM', level: 'high' },
-  { hour: 18, total: 9.77, heightPct: 82, label: '06:00 PM', level: 'high' }, // Evening surge!
-  { hour: 19, total: 9.38, heightPct: 77, label: '07:00 PM', level: 'moderate' },
-  { hour: 20, total: 9.54, heightPct: 79, label: '08:00 PM', level: 'moderate' },
-  { hour: 21, total: 9.38, heightPct: 77, label: '09:00 PM', level: 'moderate' },
-  { hour: 22, total: 9.28, heightPct: 75, label: '10:00 PM', level: 'moderate' },
-  { hour: 23, total: 8.38, heightPct: 63, label: '11:00 PM', level: 'moderate' },
-]
+// Hourly demand bars, computed from the ward risk data (was a hard-coded list).
+export const HOURLY_DEMAND_PROFILE = HOURLY_DEMAND.map((d) => ({
+  ...d,
+  label: `${String(d.hour % 12 === 0 ? 12 : d.hour % 12).padStart(2, '0')}:00 ${d.hour < 12 ? 'AM' : 'PM'}`,
+}))
 
 function formatHourMono(h: number): string {
   const normalized = ((h % 24) + 24) % 24

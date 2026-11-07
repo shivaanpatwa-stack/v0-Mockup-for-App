@@ -137,89 +137,8 @@ export function buildFleetRows(
     })
   }
 
-  // Placeholder fallback
-  return [
-    {
-      id: 'AMB-001',
-      displayId: 'AMB-01',
-      zone: 'K/W',
-      wardArea: 'Andheri West, Juhu, Versova',
-      position: 'Cooper Hospital Emergency Bay, Juhu',
-      candidateId: 'CAND-01',
-      fromBaseKm: 4.8,
-      fromBaseText: '4.8 km',
-      estimatedDriveMin: 13,
-      type: 'ALS',
-      status: 'available',
-      assignmentStatus: null,
-      lat: 19.1075,
-      lng: 72.8363,
-    },
-    {
-      id: 'AMB-002',
-      displayId: 'AMB-02',
-      zone: 'H/W',
-      wardArea: 'Bandra West, Khar, Santacruz West',
-      position: 'Bhabha Hospital Staging Area, Bandra West',
-      candidateId: 'CAND-02',
-      fromBaseKm: 2.3,
-      fromBaseText: '2.3 km',
-      estimatedDriveMin: 6,
-      type: 'BLS',
-      status: 'responding',
-      assignmentStatus: null,
-      lat: 19.0558,
-      lng: 72.8327,
-    },
-    {
-      id: 'AMB-003',
-      displayId: 'AMB-03',
-      zone: 'G/S',
-      wardArea: 'Worli, Prabhadevi, Lower Parel',
-      position: 'KEM Hospital Trauma Care Center, Parel',
-      candidateId: 'CAND-03',
-      fromBaseKm: 6.1,
-      fromBaseText: '6.1 km',
-      estimatedDriveMin: 16,
-      type: 'ALS',
-      status: 'at_hospital',
-      assignmentStatus: null,
-      lat: 19.0033,
-      lng: 72.8427,
-    },
-    {
-      id: 'AMB-004',
-      displayId: 'AMB-04',
-      zone: 'G/N',
-      wardArea: 'Dadar, Mahim, Dharavi',
-      position: 'Sion Hospital Critical Care Unit, Sion',
-      candidateId: 'CAND-04',
-      fromBaseKm: 5.4,
-      fromBaseText: '5.4 km',
-      estimatedDriveMin: 15,
-      type: 'BLS',
-      status: 'available',
-      assignmentStatus: null,
-      lat: 19.039,
-      lng: 72.8619,
-    },
-    {
-      id: 'AMB-005',
-      displayId: 'AMB-05',
-      zone: 'D',
-      wardArea: 'Grant Road, Malabar Hill, Tardeo',
-      position: 'Nair Hospital Emergency Complex, Mumbai Central',
-      candidateId: 'CAND-05',
-      fromBaseKm: 8.2,
-      fromBaseText: '8.2 km',
-      estimatedDriveMin: 22,
-      type: 'ALS',
-      status: 'unavailable',
-      assignmentStatus: null,
-      lat: 18.9712,
-      lng: 72.8226,
-    },
-  ]
+  // No fleet and no run: an honest empty table (no placeholder units).
+  return []
 }
 
 type SortField = 'id' | 'zone' | 'position' | 'distance' | 'type' | 'status'
@@ -352,6 +271,11 @@ export default function FleetTable({
             </tr>
           </thead>
           <tbody>
+            {sortedRows.length === 0 && (
+              <tr>
+                <td colSpan={7} className="fleet-empty-cell">No units stationed here</td>
+              </tr>
+            )}
             {sortedRows.map((row) => {
               const isHighlighted = highlightedId === row.id
               return (

@@ -95,19 +95,8 @@ type FleetRow = {
 
 
 
-const placeholderFleet: FleetRow[] = [
-
-  { id: 'AMB-001', zone: 'Andheri West', position: 'K/W Ward', fromBase: '—', type: 'ALS', status: 'available', assignmentStatus: null },
-
-  { id: 'AMB-002', zone: 'Bandra', position: 'H/W Ward', fromBase: '—', type: 'BLS', status: 'responding', assignmentStatus: null },
-
-  { id: 'AMB-003', zone: 'Parel', position: 'G/S Ward', fromBase: '—', type: 'ALS', status: 'at_hospital', assignmentStatus: null },
-
-  { id: 'AMB-004', zone: 'Dadar', position: 'G/N Ward', fromBase: '—', type: 'BLS', status: 'available', assignmentStatus: null },
-
-  { id: 'AMB-005', zone: 'Worli', position: 'D Ward', fromBase: '—', type: 'ALS', status: 'unavailable', assignmentStatus: null },
-
-]
+/** No fleet and no run yet: an empty table, never invented units. */
+const placeholderFleet: FleetRow[] = []
 
 
 

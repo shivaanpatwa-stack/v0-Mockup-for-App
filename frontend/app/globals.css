@@ -38015,3 +38015,7 @@ details.runs-details[open] .runs-chevron {
   }
   .dashboard-shell { padding-bottom: 40vh; }
 }
+
+.map-legend-note{margin:6px 0 0;font-size:12px;color:#57534e}
+.kpi-data-note{font-size:12px;color:#57534e;margin-left:8px}
+.fleet-empty-cell{padding:16px;text-align:center;color:#57534e;font-size:13px}
