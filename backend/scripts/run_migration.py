@@ -16,8 +16,8 @@ if DIRECTION not in ("up", "down"):
     sys.exit("usage: run_migration.py up|down")
 
 sql = (Path(__file__).resolve().parent.parent / "migrations" / f"2026_11_07_scenarios_{DIRECTION}.sql").read_text()
-statements = [s.strip() for s in sql.split(";") if s.strip() and s.strip().upper() not in ("BEGIN", "COMMIT")]
-statements = ["\n".join(l for l in s.splitlines() if not l.strip().startswith("--")).strip() for s in statements]
+chunks = ["\n".join(l for l in s.splitlines() if not l.strip().startswith("--")).strip() for s in sql.split(";")]
+statements = [s for s in chunks if s and s.upper() not in ("BEGIN", "COMMIT")]
 with engine.begin() as conn:  # one transaction: all or nothing
     for s in statements:
         if s:
