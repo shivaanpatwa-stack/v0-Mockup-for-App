@@ -27,31 +27,32 @@ export const DEMAND_LABEL: Record<DemandLevel, string> = {
 
 export const DEMAND_RANGE: Record<DemandLevel, string> = {
   'very-high': '> 0.70',
-  high: '0.46 – 0.70',
-  moderate: '0.20 – 0.46',
+  high: '0.46 to 0.70',
+  moderate: '0.20 to 0.46',
   low: '< 0.20',
 }
 
 /**
- * Single-hue warm ramp: Sand -> Ochre / Light Terracotta -> Terracotta -> Deep Brick.
- * Principle: Warm tones = what the city needs (demand/risk), Blue/Navy = what you control (ambulances/coverage).
- * Completely color-blind safe, with zero clash against green KPI performance indicators.
+ * Single-hue steel-blue ramp (about 240 degrees), dark to light: low demand recedes into the dark
+ * map, high demand is the lightest. Checked with the dataviz ordinal validator against #181c1b
+ * (monotone lightness, visible steps, light end 2.12:1). Blue stays clear of brand green, critical
+ * red and warning amber, and reads as "predicted". Bands are unchanged.
  */
 export const DEMAND_COLORS: Record<DemandLevel, string> = {
-  'very-high': '#882414', // Deep Brick
-  high: '#C45A3C',        // Terracotta
-  moderate: '#DF9B6D',    // Ochre / Light Terracotta
-  low: '#EEDEC5',         // Sand
+  'very-high': '#93b3d3',
+  high: '#6b90b4',
+  moderate: '#4f6f8f',
+  low: '#3b5266',
 }
 
 export const DEMAND_DESCRIPTION: Record<
   DemandLevel,
   { label: string; range: string; colorHex: string; tone: string }
 > = {
-  'very-high': { label: 'Very High', range: '> 0.70', colorHex: '#882414', tone: 'Deep Brick' },
-  high: { label: 'High', range: '0.46 – 0.70', colorHex: '#C45A3C', tone: 'Terracotta' },
-  moderate: { label: 'Moderate', range: '0.20 – 0.46', colorHex: '#DF9B6D', tone: 'Ochre' },
-  low: { label: 'Low', range: '< 0.20', colorHex: '#EEDEC5', tone: 'Sand' },
+  'very-high': { label: 'Very high', range: '> 0.70', colorHex: DEMAND_COLORS['very-high'], tone: 'Very high' },
+  high: { label: 'High', range: '0.46 to 0.70', colorHex: DEMAND_COLORS.high, tone: 'High' },
+  moderate: { label: 'Moderate', range: '0.20 to 0.46', colorHex: DEMAND_COLORS.moderate, tone: 'Moderate' },
+  low: { label: 'Low', range: '< 0.20', colorHex: DEMAND_COLORS.low, tone: 'Low' },
 }
 
 export type MapColor =

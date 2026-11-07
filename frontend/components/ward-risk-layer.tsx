@@ -7,11 +7,13 @@ import { layerGroup, tooltip, type GeoJSON as LeafletGeoJSON, type Layer, type L
 import { getDemandScores } from '@/lib/api'
 import { DEMAND_COLORS, DEMAND_DESCRIPTION, DEMAND_LABEL, demandLevel, mapColor } from '@/lib/map-theme'
 import { getBundledScoresForHour } from '@/lib/ward-risk-data'
+import { WARD_NAMES } from '@/lib/ward-names'
 
-const GEOJSON_URL = '/data/zones_full_features_final.geojson'
+// Display copy simplified to ~40 m (27 KB instead of 924 KB); the original stays for reference.
+const GEOJSON_URL = '/data/wards_simplified.geojson'
 
 const FETCH_DEBOUNCE_MS = 250
-const WARD_FILL_OPACITY = 0.62
+const WARD_FILL_OPACITY = 0.55
 const WARD_LABEL_MIN_ZOOM = 11
 const WARD_LABEL_PANE = 'ward-labels'
 const WARD_LABEL_PANE_Z = '455'
@@ -31,9 +33,9 @@ function wardStyle(feature: Feature | undefined, scores: RiskLookup | null, show
   const fill = score !== undefined ? riskColor(score) : mapColor('no-data')
 
   return {
-    color: '#FFFFFF', // Thin white ward borders
-    opacity: 0.95,
-    weight: 1.2,      // Crisp, thin outline
+    color: '#111413', // thin canvas-coloured ward borders
+    opacity: 0.9,
+    weight: 1,
     fillColor: fill,
     fillOpacity: showDemand ? WARD_FILL_OPACITY : 0.05,
   }
@@ -48,7 +50,8 @@ function wardTooltipHtml(code: string | undefined, score: number | undefined, sh
   if (!showRisk) return `${title}`
   const level = demandLevel(score)
   const desc = DEMAND_DESCRIPTION[level]
-  return `<div class="map-tooltip-row">${title}<span class="demand-chip demand-${level}">${desc.tone} · ${DEMAND_LABEL[level]}</span></div><div class="map-tooltip-muted">Forecasted Risk: ${score.toFixed(2)}</div>`
+  const area = WARD_NAMES[code ?? ''] ? `<div class="map-tooltip-muted">${escapeHtml(WARD_NAMES[code ?? ''])}</div>` : ''
+  return `${title}${area}<div class="map-tooltip-row"><span>Predicted demand</span><span class="mono">${score.toFixed(2)} · ${DEMAND_LABEL[level]}</span></div><div class="map-tooltip-muted">${desc.range} band · simulated</div>`
 }
 
 /** Shoelace area (signed) and centroid of one ring of [lng, lat] points. */
@@ -206,7 +209,7 @@ export default function WardRiskLayer({
       mouseover: (e: LeafletMouseEvent) => {
         const path = e.target as Path
         // Highlight active ward with dark navy outline
-        path.setStyle({ weight: 2.2, color: '#0C4A6E', opacity: 1 })
+        path.setStyle({ weight: 2, color: '#e8ebe9', opacity: 1 })
         path.bringToFront()
       },
       mouseout: (e: LeafletMouseEvent) => {

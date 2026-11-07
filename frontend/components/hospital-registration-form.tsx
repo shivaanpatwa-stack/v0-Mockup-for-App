@@ -1,6 +1,7 @@
 'use client'
 
 import dynamic from 'next/dynamic'
+import { X } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -143,7 +144,7 @@ export default function HospitalRegistrationForm({ hasSession }: { hasSession: b
       }
       // The key is only in the httpOnly session cookie from here on.
       setRegistration({ ...registration, admin_key: '' })
-      router.replace('/')
+      router.replace('/app')
     } catch {
       setFinishError("Can't reach the server. Check your connection and try again.")
     } finally {
@@ -163,8 +164,8 @@ export default function HospitalRegistrationForm({ hasSession }: { hasSession: b
           <button type="button" className="reg-submit" onClick={() => setConfirmedSwitch(true)}>
             Register a new hospital
           </button>
-          <Link href="/" className="reg-secondary">
-            Back to dashboard
+          <Link href="/app" className="reg-secondary">
+            Back to the live map
           </Link>
         </div>
       </section>
@@ -180,13 +181,13 @@ export default function HospitalRegistrationForm({ hasSession }: { hasSession: b
           <strong>only once</strong>. Store them somewhere safe, such as a password manager.
         </p>
         <div className="reg-key-row">
-          <CopyCode code={registration.code} label="Driver code" />
+          <CopyCode code={registration.code} label="Hospital code" />
           <p className="reg-hint">Drivers enter this in the app.</p>
         </div>
         {registration.admin_key && (
           <div className="reg-key-row">
             <CopyCode code={registration.admin_key} label="Dashboard key" className="reg-dashboard-key" />
-            <p className="reg-hint">Needed to sign in to this dashboard. Keep it private.</p>
+            <p className="reg-hint">Needed to sign in on this site. Keep it private.</p>
           </div>
         )}
         <label className="reg-confirm">
@@ -198,7 +199,7 @@ export default function HospitalRegistrationForm({ hasSession }: { hasSession: b
           </p>
         )}
         <button type="button" className="reg-submit" onClick={goToDashboard} disabled={!savedKeys || finishing}>
-          {finishing ? 'Signing in…' : 'Go to dashboard'}
+          {finishing ? 'Signing in…' : 'Open the live map'}
         </button>
       </section>
     )
@@ -216,7 +217,7 @@ export default function HospitalRegistrationForm({ hasSession }: { hasSession: b
               type="text"
               value={name}
               maxLength={120}
-              placeholder="e.g. Hospital A — Parel"
+              placeholder="e.g. City Hospital, Parel"
               onChange={(e) => setName(e.target.value)}
             />
           </label>
@@ -274,9 +275,7 @@ export default function HospitalRegistrationForm({ hasSession }: { hasSession: b
                 aria-label={`Remove ambulance ${index + 1}`}
                 disabled={ambulances.length === 1}
                 onClick={() => removeAmbulance(a.key)}
-              >
-                ✕
-              </button>
+              ><X aria-hidden="true" size={14} /></button>
             </li>
           ))}
         </ul>

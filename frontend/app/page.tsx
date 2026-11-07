@@ -1,942 +1,196 @@
-'use client'
+import Link from 'next/link'
+import type { Metadata } from 'next'
+import CityBand from '@/components/landing/city-band'
+import Wordmark from '@/components/app/wordmark'
+import { APP_NAME } from '@/lib/config'
+import impact from '@/lib/landing-impact.json'
 
-
-
-import dynamic from 'next/dynamic'
-
-import { useCallback, useEffect, useState } from 'react'
-
-import {
-
-  apiFetch,
-
-  ApiError,
-
-  getFleet,
-
-  getHospital,
-
-  getRun,
-
-  getRuns,
-
-  readErrorMessage,
-
-  saveHospitalName,
-
-  simulate,
-
-  type AmbulanceAssignment,
-
-  type AmbulanceStatus,
-
-  type AssignmentStatus,
-
-  type FleetAmbulance,
-
-  type Hospital,
-
-  type OptimizeResult,
-
-  type RunDetail,
-
-  type RunSummary,
-
-  type SimulationResult,
-
-} from '@/lib/api'
-
-import EditFleetDialog from '@/components/edit-fleet-dialog'
-
-import AppHeader, { type NavSection } from '@/components/app-header'
-
-import HospitalMenu from '@/components/hospital-menu'
-
-import KpiStrip from '@/components/kpi-strip'
-
-import MapLegend from '@/components/map-legend'
-import OptimizationControls from '@/components/optimization-controls'
-
-import WhatIfPanel from '@/components/what-if-panel'
-import FleetTable from '@/components/fleet-table'
-import RunHistoryTable from '@/components/run-history-table'
-import { WARD_CENTROIDS } from '@/lib/ward-names'
-
-
-
-const MumbaiMap = dynamic(() => import('@/components/mumbai-map'), {
-
-  ssr: false,
-
-  loading: () => <div style={{ height: '100%' }} />,
-
-})
-
-
-
-type FleetRow = {
-
-  id: string
-
-  zone: string
-
-  position: string
-
-  fromBase: string
-
-  type: string
-
-  status: AmbulanceStatus | null
-
-  assignmentStatus: AssignmentStatus | null
-
+export const metadata: Metadata = {
+  title: { absolute: `${APP_NAME}: ambulances staged where Mumbai will need them` },
+  description: 'Predicts ambulance demand by Mumbai ward and hour, and recommends where each unit should wait between calls.',
 }
 
-
-
-const placeholderFleet: FleetRow[] = [
-
-  { id: 'AMB-001', zone: 'Andheri West', position: 'K/W Ward', fromBase: '—', type: 'ALS', status: 'available', assignmentStatus: null },
-
-  { id: 'AMB-002', zone: 'Bandra', position: 'H/W Ward', fromBase: '—', type: 'BLS', status: 'responding', assignmentStatus: null },
-
-  { id: 'AMB-003', zone: 'Parel', position: 'G/S Ward', fromBase: '—', type: 'ALS', status: 'at_hospital', assignmentStatus: null },
-
-  { id: 'AMB-004', zone: 'Dadar', position: 'G/N Ward', fromBase: '—', type: 'BLS', status: 'available', assignmentStatus: null },
-
-  { id: 'AMB-005', zone: 'Worli', position: 'D Ward', fromBase: '—', type: 'ALS', status: 'unavailable', assignmentStatus: null },
-
-]
-
-
-
-const FLEET_POLL_MS = 5000
-
-const RECENT_RUNS_LIMIT = 10
-
-
-
-const istParts = new Intl.DateTimeFormat('en-IN', {
-
-  timeZone: 'Asia/Kolkata',
-
-  day: 'numeric',
-
-  month: 'short',
-
-  hour: 'numeric',
-
-  minute: '2-digit',
-
-  hour12: true,
-
-})
-
-
-
-/** e.g. "9 Oct, 9:14 PM" in Asia/Kolkata. */
-
-function formatIST(iso: string) {
-
-  const part = Object.fromEntries(istParts.formatToParts(new Date(iso)).map((p) => [p.type, p.value]))
-
-  return `${part.day} ${part.month}, ${part.hour}:${part.minute} ${String(part.dayPeriod).toUpperCase()}`
-
-}
-
-
-
-function formatRelativeTime(iso: string): string {
-
-  const diffMs = Date.now() - new Date(iso).getTime()
-
-  const diffSec = Math.floor(diffMs / 1000)
-
-  if (diffSec < 60) return 'Just now'
-
-  const diffMin = Math.floor(diffSec / 60)
-
-  if (diffMin < 60) return `${diffMin}m ago`
-
-  const diffHours = Math.floor(diffMin / 60)
-
-  if (diffHours < 24) return `${diffHours}h ago`
-
-  const diffDays = Math.floor(diffHours / 24)
-
-  if (diffDays === 1) return 'Yesterday'
-
-  if (diffDays < 30) return `${diffDays} days ago`
-
-  return formatIST(iso)
-
-}
-
-
-
-function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-
-  const R = 6371
-
-  const dLat = (lat2 - lat1) * (Math.PI / 180)
-
-  const dLon = (lon2 - lon1) * (Math.PI / 180)
-
-  const a =
-
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-
-    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLon / 2) * Math.sin(dLon / 2)
-
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-
-  return R * c
-
-}
-
-
-
-function distanceFromBase(hospital: Hospital | undefined, lat: number | null | undefined, lng: number | null | undefined): string {
-
-  if (!hospital || lat == null || lng == null) return '—'
-
-  return `${haversineKm(hospital.lat, hospital.lng, lat, lng).toFixed(1)} km`
-
-}
-
-
-
-/** A saved run's assignments in the shape the map draws; rows without a known position are skipped. */
-
-function pastRunMarkers(view: RunDetail): AmbulanceAssignment[] {
-
-  return view.assignments.flatMap((a) =>
-
-    a.lat === null || a.lng === null ? [] : [{ ...a, lat: a.lat, lng: a.lng, weighted_score: a.weighted_score ?? 0 }],
-
-  )
-
-}
-
-
-
-const STATUS_LABEL: Record<AmbulanceStatus, string> = {
-
-  available: 'Available',
-
-  responding: 'Responding',
-
-  at_hospital: 'At hospital',
-
-  unavailable: 'Unavailable',
-
-}
-
-
-
-const ASSIGNMENT_LABEL: Record<AssignmentStatus, string> = {
-
-  planned: 'planned',
-
-  en_route: 'en route',
-
-  in_position: 'in position',
-
-  cancelled: 'cancelled',
-
-}
-
-
-
-/** One row per ambulance: live status from GET /fleet, position from the latest run when there is one. */
-
-function buildFleetRows(fleet: FleetAmbulance[] | null, run: Run | null, hospital: Hospital | undefined): FleetRow[] {
-
-  const fromRun = new Map(run?.assignments.map((a) => [a.ambulance_id, a]))
-
-  if (fleet) {
-
-    return fleet.map((amb) => {
-
-      const planned = fromRun.get(amb.call_sign)
-
-      const current = amb.current_assignment
-
-      const lat = planned?.lat ?? current?.lat ?? null
-
-      const lng = planned?.lng ?? current?.lng ?? null
-
-      return {
-
-        id: amb.call_sign,
-
-        zone: planned?.ward_code ?? current?.ward_code ?? '—',
-
-        position: planned?.name ?? planned?.candidate_id ?? current?.name ?? current?.candidate_id ?? '—',
-
-        fromBase: distanceFromBase(hospital, lat, lng),
-
-        type: amb.type,
-
-        status: amb.status,
-
-        assignmentStatus:
-
-          current && (!planned || planned.candidate_id === current.candidate_id) ? current.assignment_status : null,
-
-      }
-
-    })
-
-  }
-
-  if (run) {
-
-    return run.assignments.map((a) => ({
-
-      id: a.ambulance_id,
-
-      zone: a.ward_code ?? '—',
-
-      position: a.name ?? a.candidate_id,
-
-      fromBase: distanceFromBase(hospital, a.lat, a.lng),
-
-      type: a.type,
-
-      status: null,
-
-      assignmentStatus: null,
-
-    }))
-
-  }
-
-  return placeholderFleet
-
-}
-
-
-
-const DEFAULT_SPACING_KM = 2
-
-const MAX_SPACING_KM = 10
-
-const NETWORK_ERROR = "Can't reach the server. Is the backend running?"
-
-
-
-type Run = OptimizeResult & { hour: number }
-
-
-
-function formatHour(hour: number) {
-
-  return hour === 0 ? '12:00 AM' : hour < 12 ? `${hour}:00 AM` : `${hour === 12 ? 12 : hour - 12}:00 PM`
-
-}
-
-
-
-/** Ambulances the optimizer can place: every status except unavailable (out of service). */
-
-const inService = (hospital: Hospital) => hospital.ambulances.filter((a) => a.status !== 'unavailable')
-
-
-
-function fleetSummary(hospital: Hospital) {
-
-  const active = inService(hospital)
-
-  const count = (type: 'ALS' | 'BLS') => active.filter((a) => a.type === type).length
-
-  return `Fleet: ${active.length} in service (${count('ALS')} ALS, ${count('BLS')} BLS)`
-
-}
-
-
-
-export default function Page() {
-
-  const [hour, setHour] = useState(8)
-
-  // Kept as typed so the field can be briefly empty while editing.
-
-  const [spacing, setSpacing] = useState(String(DEFAULT_SPACING_KM))
-
-  const [run, setRun] = useState<Run | null>(null)
-
-  const [loading, setLoading] = useState(false)
-
-  const [error, setError] = useState<string | null>(null)
-
-  // undefined while loading; GET /hospital returning 404 redirects to /register instead.
-
-  const [hospital, setHospital] = useState<Hospital | undefined>(undefined)
-
-  const [fleet, setFleet] = useState<FleetAmbulance[] | null>(null)
-
-  const [recentRuns, setRecentRuns] = useState<RunSummary[] | null>(null)
-
-  // A saved run shown on the map instead of the live result, and the run being loaded.
-
-  const [viewing, setViewing] = useState<RunDetail | null>(null)
-
-  const [loadingRunId, setLoadingRunId] = useState<number | null>(null)
-
-  // An unsaved what-if result shown on the map instead of the live result.
-
-  const [simulation, setSimulation] = useState<SimulationResult | null>(null)
-
-  const [simRunning, setSimRunning] = useState(false)
-
-  const [editOpen, setEditOpen] = useState(false)
-
-  const [fleetChanged, setFleetChanged] = useState(false)
-  const [confirmationMessage, setConfirmationMessage] = useState<string | null>(null)
-
-  const [activeNav, setActiveNav] = useState<NavSection>('overview')
-  const [highlightedAmbulanceId, setHighlightedAmbulanceId] = useState<string | null>(null)
-  const [mapFocus, setMapFocus] = useState<{
-    lat: number
-    lng: number
-    zoom?: number
-    wardCode?: string
-    key?: number
-  } | null>(null)
-
-  const handleZoomToWard = useCallback((code: string) => {
-    const centroid = WARD_CENTROIDS[code]
-    if (centroid) {
-      setMapFocus({
-        lat: centroid.lat,
-        lng: centroid.lng,
-        zoom: 14,
-        wardCode: code,
-        key: Date.now(),
-      })
-      const mapEl = document.getElementById('analytics')
-      if (mapEl) {
-        mapEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-      }
-    }
-  }, [])
-
-
-
-  const spacingKm = Number(spacing)
-
-  const spacingValid = spacing.trim() !== '' && spacingKm >= 0 && spacingKm <= MAX_SPACING_KM
-
-
-
-  useEffect(() => {
-
-    document.title = 'AmbulanceIQ | Mumbai response model'
-
-  }, [])
-
-
-
-  useEffect(() => {
-
-    const controller = new AbortController()
-
-    getHospital(controller.signal)
-
-      .then((found) => {
-
-        setHospital(found)
-
-        saveHospitalName(found.name)
-
-      })
-
-      .catch((err) => {
-
-        if ((err as Error).name === 'AbortError') return
-
-        setError(err instanceof TypeError ? NETWORK_ERROR : (err as Error).message)
-
-      })
-
-    return () => controller.abort()
-
-  }, [])
-
-
-
-  // Live fleet status: poll while the tab is visible, refresh as soon as it becomes visible again.
-
-  useEffect(() => {
-
-    if (!hospital) return
-
-    let controller: AbortController | null = null
-
-    const poll = () => {
-
-      if (document.hidden) return
-
-      controller?.abort()
-
-      controller = new AbortController()
-
-      getFleet(controller.signal)
-
-        .then(setFleet)
-
-        .catch((err) => {
-
-          if ((err as Error).name !== 'AbortError') console.warn('Fleet refresh failed', err)
-
-        })
-
-    }
-
-    poll()
-
-    const timer = setInterval(poll, FLEET_POLL_MS)
-
-    document.addEventListener('visibilitychange', poll)
-
-    return () => {
-
-      clearInterval(timer)
-
-      document.removeEventListener('visibilitychange', poll)
-
-      controller?.abort()
-
-    }
-
-  }, [hospital])
-
-
-
-  const refreshRuns = useCallback(async () => {
-
-    if (!hospital) return
-
-    try {
-
-      setRecentRuns(await getRuns(RECENT_RUNS_LIMIT))
-
-    } catch (err) {
-
-      console.warn('Loading recent runs failed', err)
-
-    }
-
-  }, [hospital])
-
-
-
-  useEffect(() => {
-
-    refreshRuns()
-
-  }, [refreshRuns])
-
-
-
-  async function refreshHospital() {
-
-    try {
-
-      const found = await getHospital()
-
-      setHospital(found)
-
-      saveHospitalName(found.name)
-
-    } catch (err) {
-
-      setError(err instanceof ApiError ? err.message : NETWORK_ERROR)
-
-    }
-
-  }
-
-
-
-  async function onFleetEdited() {
-
-    setFleetChanged(true)
-
-    await refreshHospital()
-
-  }
-
-
-
-  async function runSimulation(params: {
-    numAmbulances: number
-    radiusKm: number
-    spacingKm?: number
-    maxResponseMinutes?: number
-    hour?: number
-  }) {
-
-    setViewing(null)
-
-    setSimRunning(true)
-
-    setError(null)
-
-    try {
-
-      setSimulation(
-
-        await simulate({
-          hour: params.hour ?? hour,
-          num_ambulances: params.numAmbulances,
-          operating_radius_km: params.radiusKm,
-          min_spacing_km: params.spacingKm ?? spacingKm,
-          max_response_minutes: params.maxResponseMinutes ?? 20,
-        }),
-
-      )
-
-    } catch (err) {
-
-      setError(err instanceof ApiError ? err.message : NETWORK_ERROR)
-
-    } finally {
-
-      setSimRunning(false)
-
-    }
-
-  }
-
-
-
-  async function viewRun(runId: number) {
-
-    setSimulation(null)
-
-    setLoadingRunId(runId)
-
-    setError(null)
-
-    try {
-
-      setViewing(await getRun(runId))
-
-    } catch (err) {
-
-      setError(err instanceof ApiError ? err.message : NETWORK_ERROR)
-
-    } finally {
-
-      setLoadingRunId(null)
-
-    }
-
-  }
-
-
-
-  async function recalculate() {
-
-    if (!hospital || !spacingValid) return
-
-    setViewing(null)
-
-    setSimulation(null)
-
-    setLoading(true)
-
-    setError(null)
-
-    try {
-
-      const params = new URLSearchParams({
-
-        hour: String(hour),
-
-        min_spacing_km: String(spacingKm),
-
-      })
-
-      const res = await apiFetch(`/optimize?${params}`)
-
-      if (!res.ok) {
-
-        setError(await readErrorMessage(res, res.status === 503 ? 'Server data unavailable' : 'Optimization failed'))
-
-        return
-
-      }
-
-      const result: OptimizeResult = await res.json()
-
-      setRun({ ...result, hour })
-
-      setFleetChanged(false)
-      setConfirmationMessage(`Positions optimized for ${formatHour(hour)} (${result.assignments.length} units assigned)`)
-      setTimeout(() => setConfirmationMessage(null), 4500)
-
-    } catch (err) {
-
-      setError(err instanceof ApiError ? err.message : NETWORK_ERROR)
-
-    } finally {
-
-      setLoading(false)
-
-      refreshRuns()
-
-    }
-
-  }
-
-
-
-  const lastSucceeded = recentRuns?.find((r) => r.status === 'succeeded')
-
-  const mapHour = viewing ? viewing.target_hour : simulation ? simulation.parameters.hour : hour
-
-  const fleetRows = buildFleetRows(fleet, run, hospital)
-
-  const realRows = fleet !== null || run !== null
-
-
-
+type Ward = { ward: string; weight: number; before: number; after: number }
+
+/** Share of demand reached within each minute bucket, before vs after (simulated example). */
+function ImpactChart() {
+  const wards = impact.wards as Ward[]
+  const total = wards.reduce((s, w) => s + w.weight, 0)
+  const buckets = [5, 10, 15, 20, 25, 30, 40, 60]
+  const share = (key: 'before' | 'after', limit: number) => (100 * wards.filter((w) => w[key] <= limit).reduce((s, w) => s + w.weight, 0)) / total
+  const W = 640
+  const H = 240
+  const pad = { l: 44, r: 16, t: 16, b: 36 }
+  const x = (i: number) => pad.l + (i * (W - pad.l - pad.r)) / (buckets.length - 1)
+  const y = (v: number) => pad.t + (1 - v / 100) * (H - pad.t - pad.b)
+  const line = (key: 'before' | 'after') => buckets.map((b, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(share(key, b)).toFixed(1)}`).join(' ')
+  const targetI = buckets.indexOf(impact.target_min)
   return (
-
-    <main className="dashboard-shell">
-
-      {/* 1. Structured Header & Navigation */}
-
-      <AppHeader
-
-        hospital={hospital}
-
-        onHospitalChanged={refreshHospital}
-
-        activeNav={activeNav}
-
-        onNavSelect={setActiveNav}
-
-      />
-
-
-
-      {/* 2. Controls Bar (One Row, Three Groups) */}
-
-      <OptimizationControls
-        hour={hour}
-        onHourChange={setHour}
-        spacing={spacing}
-        onSpacingChange={setSpacing}
-        spacingValid={spacingValid}
-        maxSpacingKm={MAX_SPACING_KM}
-        hospital={hospital}
-        fleetChanged={fleetChanged}
-        loading={loading}
-        onRecalculate={recalculate}
-        lastSucceeded={lastSucceeded}
-        recentRunsCount={recentRuns?.length ?? 0}
-        confirmationMessage={confirmationMessage}
-        formatHour={formatHour}
-        formatIST={formatIST}
-      />
-
-
-
-      {error && (
-
-        <p className="controls-error" role="alert">
-
-          {error}
-
-          <button type="button" className="banner-dismiss" aria-label="Dismiss error" onClick={() => setError(null)}>
-
-            ×
-
-          </button>
-
-        </p>
-
-      )}
-
-
-
-      {viewing && (
-
-        <div className="controls-notice viewing-banner" role="status">
-
-          <p>Viewing run #{viewing.run_id} from {formatIST(viewing.created_at)} ({formatHour(viewing.target_hour)} plan)</p>
-
-          <button type="button" className="back-to-live" onClick={() => setViewing(null)}>Back to live</button>
-
-        </div>
-
-      )}
-
-
-
-      {simulation && (
-
-        <div className="controls-notice viewing-banner simulation-banner" role="status">
-
-          <p>Simulation — not saved ({simulation.parameters.num_ambulances} ambulances, {simulation.parameters.operating_radius_km} km, {formatHour(simulation.parameters.hour)}{simulation.parameters.synthetic_ambulances > 0 ? `, incl. ${simulation.parameters.synthetic_ambulances} simulated BLS` : ''})</p>
-
-          <button type="button" className="back-to-live" onClick={() => setSimulation(null)}>Discard</button>
-
-        </div>
-
-      )}
-
-
-
-      {fleetChanged && <p className="controls-notice" role="status">Fleet changed — recalculate to update positions.</p>}
-
-
-
-      {!viewing && !simulation && run && !run.coverage_guaranteed && (
-
-        <div className="controls-notice coverage-notice" role="status">
-
-          <p>Fleet too small to guarantee {run.max_response_minutes}-minute coverage of every ward. Uncovered: {run.uncovered_wards.length ? run.uncovered_wards.join(', ') : 'none'}.</p>
-
-          {run.uncoverable_wards.length > 0 && <p className="coverage-secondary">{run.uncoverable_wards.join(', ')} {run.uncoverable_wards.length === 1 ? 'is' : 'are'} outside what nearby positions can reach in {run.max_response_minutes} minutes.</p>}
-
-        </div>
-
-      )}
-
-
-
-      {/* What-if simulator collapsed under the controls */}
-
-      {hospital && (
-
-        <WhatIfPanel
-
-          defaultFleet={inService(hospital).length}
-
-          defaultRadiusKm={hospital.operating_radius_km}
-
-          currentSpacingKm={spacingKm}
-
-          currentHour={hour}
-
-          running={simRunning}
-
-          disabled={!spacingValid}
-
-          simulation={simulation}
-
-          liveRun={run}
-
-          onRun={runSimulation}
-
-          onDiscard={() => setSimulation(null)}
-
-        />
-
-      )}
-
-
-
-      {/* 4 & 5. Map + Optimization Impact */}
-
-      <section id="analytics" className="content-grid">
-
-        <div className="map-card">
-
-          <h2>Ward demand at {formatHour(mapHour)}</h2>
-
-          <div className="map">
-
-            <MumbaiMap
-
-              hour={mapHour}
-
-              hospital={hospital}
-
-              assignments={viewing ? pastRunMarkers(viewing) : simulation ? simulation.assignments : run?.assignments}
-
-              fleet={fleet}
-              simulated={!viewing && simulation !== null}
-
-              simulatedRadiusKm={viewing ? null : simulation?.parameters.operating_radius_km}
-              kpis={viewing ? viewing.kpis : simulation ? simulation.kpis : run?.kpis ?? null}
-              hospitalCandidateId={viewing?.kpis?.baseline?.hospital_candidate_id ?? run?.kpis?.baseline?.hospital_candidate_id}
-              focusTarget={mapFocus}
-              highlightedUnitId={highlightedAmbulanceId}
-              onHighlightUnit={setHighlightedAmbulanceId}
-
-            />
-
-          </div>
-
-          <MapLegend showSimulated={!viewing && simulation !== null} />
-
-        </div>
-
-        <aside className="stats-column">
-
-          <KpiStrip
-
-            kpis={viewing ? viewing.kpis : simulation ? simulation.kpis : run?.kpis ?? null}
-
-            mode={viewing ? 'past' : simulation ? 'simulation' : 'live'}
-
-            pastLabel={viewing ? `Run #${viewing.run_id}` : undefined}
-
-            hourLabel={formatHour(mapHour)}
-
-            totalWeightedScore={viewing ? viewing.total_weighted_score : simulation ? simulation.total_weighted_score : run?.total_weighted_score}
-            selectedHour={mapHour}
-            onHourSelect={setHour}
-            recentRuns={recentRuns}
-            onZoomToWard={handleZoomToWard}
-
-          />
-
-        </aside>
-
-      </section>
-
-
-
-      {/* 6. Fleet Table */}
-
-      <FleetTable
-        fleet={fleet}
-        run={run}
-        hospital={hospital}
-        realRows={realRows}
-        onEditFleet={() => setEditOpen(true)}
-        highlightedId={highlightedAmbulanceId}
-        onHighlightId={setHighlightedAmbulanceId}
-      />
-
-
-
-      {/* 7. Run History */}
-
-      <RunHistoryTable
-        runs={recentRuns}
-        viewing={viewing}
-        loadingRunId={loadingRunId}
-        onViewRun={viewRun}
-        onBackToLive={() => setViewing(null)}
-        liveRunId={run?.run_id}
-        liveKpis={run?.kpis}
-      />
-
-
-
-      {hospital && <EditFleetDialog hospital={hospital} open={editOpen} onClose={() => setEditOpen(false)} onChanged={onFleetEdited} />}
-
-    </main>
-
+    <figure className="chart-box" style={{ margin: 0 }}>
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-labelledby="impact-title impact-desc">
+        <title id="impact-title">Share of predicted demand an ambulance can reach, by minutes</title>
+        <desc id="impact-desc">
+          With all units at the hospital, {share('before', 20).toFixed(0)}% of predicted demand is reachable within 20 minutes. With staged
+          units, {share('after', 20).toFixed(0)}%. Simulated example.
+        </desc>
+        {[0, 25, 50, 75, 100].map((v) => (
+          <g key={v}>
+            <line x1={pad.l} x2={W - pad.r} y1={y(v)} y2={y(v)} stroke="rgba(22,25,26,.08)" />
+            <text x={pad.l - 8} y={y(v) + 4} textAnchor="end" fontSize="12" fill="#5b6460">{v}%</text>
+          </g>
+        ))}
+        {buckets.map((b, i) => (
+          <text key={b} x={x(i)} y={H - 14} textAnchor="middle" fontSize="12" fill="#5b6460">{b} min</text>
+        ))}
+        {targetI >= 0 && (
+          <g>
+            <line x1={x(targetI)} x2={x(targetI)} y1={pad.t} y2={H - pad.b} stroke="#c22a1f" strokeDasharray="4 4" />
+            <text x={x(targetI) + 6} y={pad.t + 12} fontSize="12" fill="#c22a1f">20-min urban benchmark</text>
+          </g>
+        )}
+        <path d={line('before')} fill="none" stroke="#7d8682" strokeWidth="2" strokeDasharray="5 4" />
+        <path d={line('after')} fill="none" stroke="#00714b" strokeWidth="2" />
+        <text x={x(buckets.length - 1) - 4} y={y(share('after', 60)) + 16} textAnchor="end" fontSize="12" fill="#00714b">Staged units</text>
+        <text x={x(3) + 6} y={y(share('before', 20)) + 16} fontSize="12" fill="#5b6460">All units at the hospital</text>
+      </svg>
+      <figcaption className="src">
+        {impact.label}. &quot;Reachable&quot; uses the planner&apos;s travel-time table. Not a forecast of real response times.
+      </figcaption>
+    </figure>
   )
-
 }
 
+export default function Landing() {
+  const k = impact.kpis
+  return (
+    <div className="landing theme-light">
+      <header className="landing-nav">
+        <Wordmark href="/" />
+        <nav className="links" aria-label="Page">
+          <a href="#problem">Problem</a>
+          <a href="#how">How it works</a>
+          <a href="#today">What works today</a>
+          <Link href="/start">Sign in</Link>
+        </nav>
+      </header>
+
+      <main>
+        <section className="band" aria-labelledby="lead">
+          <CityBand />
+          <div className="band-text">
+            <h1 id="lead" className="lead-title">Ambulances in the right place before the call comes in</h1>
+            <p className="lead-sub">
+              In a simulated evening at Parel, staging 3 units by ward demand cut the average response from {k.avg_response_min.before.toFixed(1)} to{' '}
+              {k.avg_response_min.after.toFixed(1)} minutes.
+            </p>
+            <div className="band-actions">
+              <Link href="/app" className="btn btn-primary">Open the live map</Link>
+              <a href="#impact" className="btn">See the Parel simulation</a>
+            </div>
+          </div>
+        </section>
+
+        <div className="story">
+          <section id="problem" className="story-block" aria-labelledby="problem-h">
+            <h2 id="problem-h">The wait is mostly the drive</h2>
+            <div className="story-text">
+              <p>
+                Across Maharashtra&apos;s 108 ambulance service, an emergency trip in November 2022 took on average 23 minutes just to get
+                from the ambulance&apos;s base to the patient, and another 39 minutes to reach a hospital{' '}
+                <span className="src">(Jana et al., Scientific Reports, 2023, 16,197 emergency trips)</span>. The National Health Mission
+                benchmark the same study cites is 20 minutes for urban areas.
+              </p>
+              <p>
+                In Mumbai specifically, the call-to-arrival time is <span className="gap-marker">[STAT NEEDED: average 108 ambulance response time in Mumbai, call to arrival, with year and source]</span>.
+              </p>
+              <p>
+                Most ambulances wait at a hospital or depot between calls. Demand doesn&apos;t: it moves across the city through the day. Where a
+                unit waits decides most of how long the next patient waits.
+              </p>
+            </div>
+          </section>
+
+          <section id="how" className="story-block" aria-labelledby="how-h">
+            <h2 id="how-h">How it works</h2>
+            <div className="story-text">
+              <div className="shot">
+                <img src="/landing/live-map.jpg" alt="The live map: Mumbai wards shaded by predicted demand, unit positions, the summary strip and the list of moves." width={800} height={500} />
+                <span className="callout-num" style={{ left: '14%', bottom: '8%' }} aria-hidden="true">1</span>
+                <span className="callout-num" style={{ right: '20%', top: '22%' }} aria-hidden="true">2</span>
+                <span className="callout-num" style={{ left: '22%', top: '6%' }} aria-hidden="true">3</span>
+              </div>
+              <ol className="callout-list">
+                <li><span className="callout-num" aria-hidden="true">1</span><span><strong>Forecast.</strong> Each of the 24 wards gets a demand score for every hour. Drag the time bar to see where the city will need ambulances at 08:00, 18:00 or 03:00.</span></li>
+                <li><span className="callout-num" aria-hidden="true">2</span><span><strong>Recommendation.</strong> Recalculate staging picks one waiting position per unit, a minimum distance apart, and lists each move with the ward it covers and why.</span></li>
+                <li><span className="callout-num" aria-hidden="true">3</span><span><strong>Result.</strong> Before anything changes, you see the difference: units moved, share of demand reachable in 15 minutes, and average response. Apply it, or discard it.</span></li>
+              </ol>
+            </div>
+          </section>
+
+          <section id="impact" className="story-block" aria-labelledby="impact-h">
+            <h2 id="impact-h">One evening at Parel, simulated</h2>
+            <div className="story-text">
+              <ImpactChart />
+              <p>
+                With three units all waiting at the hospital, {Math.round(k.demand_within_20_min_pct.before ?? 0)}% of the city&apos;s predicted
+                demand at 18:00 is within 20 minutes. Staged across three wards, {Math.round(k.demand_within_20_min_pct.after ?? 0)}% is, and{' '}
+                {k.wards_covered_20_min.after} of {k.wards_covered_20_min.total} wards are within 20 minutes instead of{' '}
+                {k.wards_covered_20_min.before}. These numbers come from simulated demand, not recorded calls.
+              </p>
+            </div>
+          </section>
+
+          <section id="today" className="story-block" aria-labelledby="today-h">
+            <h2 id="today-h">What works today, and what doesn&apos;t yet</h2>
+            <div className="story-text">
+              <ul className="status-list">
+                <li><span className="tag">Works</span><span>Ward-by-hour demand map, staging recommendations with a preview before saving, undo, run history with restore, and what-if scenarios for fewer units, slower roads, demand surges and closed positions.</span></li>
+                <li><span className="tag">Works</span><span>A driver app that shows each crew its assigned position.</span></li>
+                <li><span className="tag">Basic</span><span>Demand is simulated from ward features and an assumed daily pattern. Travel times come from a fixed table, with no live traffic.</span></li>
+                <li><span className="tag">Basic</span><span>Positions are planned one hour at a time and ignore units already busy on a call.</span></li>
+                <li><span className="tag">Next</span><span>Real incident data to train and test the demand model, live traffic, and hospital capacity.</span></li>
+              </ul>
+            </div>
+          </section>
+
+          <section className="story-block" aria-labelledby="who-h">
+            <h2 id="who-h">Who it&apos;s for</h2>
+            <div className="story-text">
+              <p><strong>Dispatch centres</strong> deciding where idle units should wait during the evening peak.</p>
+              <p><strong>Hospital networks</strong> with their own fleet, planning cover around one or more sites.</p>
+              <p><strong>Private ambulance operators</strong> testing what losing two units, or a monsoon evening, does to coverage before it happens.</p>
+            </div>
+          </section>
+
+          <section className="story-block" aria-labelledby="limits-h">
+            <h2 id="limits-h">Assumptions and limits</h2>
+            <div className="story-text">
+              <p>
+                Demand scores are simulated, wards are treated as single points, and travel times don&apos;t change with live traffic. Every
+                assumption is listed on the <Link href="/app/data">Data &amp; assumptions</Link> page (sign-in needed).
+              </p>
+            </div>
+          </section>
+
+          <section className="story-block" aria-labelledby="team-h">
+            <h2 id="team-h">Team</h2>
+            <div className="story-text">
+              <div className="people">
+                <div className="person">[Name] · [Role]</div>
+                <div className="person">[Name] · [Role]</div>
+                <div className="person">[Name] · [Role]</div>
+              </div>
+              <p className="gap-marker" style={{ display: 'block', padding: 12 }}>[Founder note: 2 to 3 sentences on why you built this]</p>
+              <p>
+                Contact: <span className="gap-marker">[email]</span>
+              </p>
+            </div>
+          </section>
+        </div>
+      </main>
+      <footer className="landing-foot">
+        {APP_NAME} · Not affiliated with any government ambulance service · Sources: <a href="https://doi.org/10.1038/s41598-023-48713-1">Jana et al. 2023</a> · Map data © OpenStreetMap contributors, © CARTO
+      </footer>
+    </div>
+  )
+}

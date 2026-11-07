@@ -2,10 +2,9 @@ import { StyleSheet, Text, View } from 'react-native'
 import { colors } from '@/constants'
 import type { UnitType } from '@/lib/api'
 
-/** "AMB-01" -> "01", "123" -> "123", "ALPHA" -> "AL": short enough to sit inside the circle. */
+/** The full call sign, never shortened: dispatchers radio units by this ID. */
 export function shortLabel(callSign: string): string {
-  const digits = callSign.match(/\d+$/)?.[0]
-  return digits ? digits.slice(-3) : callSign.trim().slice(0, 2).toUpperCase()
+  return callSign.trim()
 }
 
 /** The base: a navy rounded square with a white cross. */
@@ -33,6 +32,6 @@ export function UnitMarkerView({ label, type }: { label: string; type: UnitType 
 const styles = StyleSheet.create({
   hospital: { width: 34, height: 34, borderRadius: 8, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   bar: { backgroundColor: colors.white, borderRadius: 1 },
-  unit: { width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  unitText: { fontSize: 14, fontWeight: '800' },
+  unit: { minWidth: 40, height: 40, paddingHorizontal: 10, borderRadius: 20, borderWidth: 2, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  unitText: { fontSize: 13, fontWeight: '800' },
 })

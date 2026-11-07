@@ -24,7 +24,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import ENUM
+from sqlalchemy.dialects.postgresql import ENUM, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -177,6 +177,9 @@ class OptimizationRun(Base):
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     # Empty for failed runs.
     total_weighted_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    # Added by migrations/2026_11_07_scenarios_up.sql. NULL on older runs (treated as "manual").
+    run_trigger: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    scenario_parameters: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
 
     hospital: Mapped["Hospital"] = relationship(back_populates="optimization_runs")
     positions: Mapped[List["RunPosition"]] = relationship(back_populates="run")
@@ -210,3 +213,16 @@ class AmbulanceAssignment(Base):
 
     ambulance: Mapped["Ambulance"] = relationship(back_populates="assignments")
     run: Mapped[Optional["OptimizationRun"]] = relationship(back_populates="assignments")
+
+
+class SavedScenario(Base):
+    """A what-if scenario a hospital saved (migrations/2026_11_07_scenarios_up.sql)."""
+
+    __tablename__ = "saved_scenarios"
+
+    scenario_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    hospital_id: Mapped[int] = mapped_column(ForeignKey("hospitals.hospital_id"), nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    parameters: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    result_summary: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)

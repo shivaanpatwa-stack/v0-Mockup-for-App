@@ -380,3 +380,113 @@ export async function readErrorMessage(res: Response, fallback: string): Promise
   }
   return `${fallback} (HTTP ${res.status}).`
 }
+
+// ---- Added for the UI/UX upgrade: scenarios, history, restore (backend endpoints added 2026-11-07) ----
+
+/** Recalculate staging: GET /optimize. Saves a run. Throws ApiError with the backend's detail. */
+export async function optimize(hour: number, minSpacingKm: number, maxResponseMinutes = 20): Promise<OptimizeResult> {
+  const params = new URLSearchParams({
+    hour: String(hour),
+    min_spacing_km: String(minSpacingKm),
+    max_response_minutes: String(maxResponseMinutes),
+  })
+  const res = await apiFetch(`/optimize?${params}`)
+  if (!res.ok) throw new ApiError(await readErrorMessage(res, res.status === 503 ? 'Planning data unavailable' : 'Planning failed'))
+  return res.json()
+}
+
+export type ScenarioRequest = SimulationRequest & {
+  /** Multiplies predicted demand in demand_wards (all wards when null). 1 = no change. */
+  demand_multiplier?: number
+  demand_wards?: string[] | null
+  /** Multiplies every travel time. 1 = no change, 1.4 = trips take 40% longer. */
+  travel_time_multiplier?: number
+  closed_candidates?: string[]
+}
+
+export type ScenarioParameters = Required<SimulationRequest> & {
+  synthetic_ambulances: number
+  demand_multiplier: number
+  demand_wards: string[] | null
+  travel_time_multiplier: number
+  closed_candidates: string[]
+}
+
+export type ScenarioResult = Omit<OptimizeResult, 'run_id'> & {
+  simulated: boolean
+  parameters: ScenarioParameters
+  /** Plain-English list, e.g. "Assumes travel times 40% slower". */
+  assumptions: string[]
+  run_id?: number
+}
+
+/** What-if with knobs. Nothing is saved. */
+export function simulateScenario(request: ScenarioRequest): Promise<ScenarioResult> {
+  return sendJson('POST', '/scenarios/simulate', request, 'Scenario failed')
+}
+
+/** Use a scenario as the staging plan: same calculation as simulateScenario, saved as a run. */
+export function applyScenario(request: ScenarioRequest): Promise<ScenarioResult & { run_id: number }> {
+  return sendJson('POST', '/scenarios/apply', request, 'Applying the scenario failed')
+}
+
+export type Candidate = { candidate_id: string; name: string | null; ward_code: string | null; lat: number; lng: number }
+
+/** Staging positions within the hospital's radius. */
+export async function getCandidates(radiusKm?: number): Promise<Candidate[]> {
+  const res = await apiFetch(`/candidates${radiusKm ? `?radius_km=${radiusKm}` : ''}`)
+  if (!res.ok) throw new ApiError(await readErrorMessage(res, 'Loading staging positions failed'))
+  return res.json()
+}
+
+export type SavedScenario = {
+  scenario_id: number
+  name: string
+  parameters: ScenarioRequest
+  result_summary: ScenarioSummary | null
+  created_at: string
+}
+
+export type ScenarioSummary = { avg_response_min: number | null; reach_15_pct: number | null; wards_covered: number | null }
+
+export async function getScenarios(): Promise<SavedScenario[]> {
+  const res = await apiFetch('/scenarios')
+  if (!res.ok) throw new ApiError(await readErrorMessage(res, 'Loading saved scenarios failed'))
+  return res.json()
+}
+
+export function saveScenario(name: string, parameters: ScenarioRequest, summary: ScenarioSummary | null): Promise<SavedScenario> {
+  return sendJson('POST', '/scenarios', { name, parameters, result_summary: summary }, 'Saving the scenario failed')
+}
+
+export async function deleteScenario(id: number): Promise<void> {
+  const res = await apiFetch(`/scenarios/${id}`, { method: 'DELETE' })
+  if (!res.ok) throw new ApiError(await readErrorMessage(res, 'Deleting the scenario failed'))
+}
+
+export type RunTrigger = 'manual' | 'what_if' | 'restore'
+
+export type RunHistoryRow = RunSummary & {
+  trigger: RunTrigger
+  scenario_parameters: (Partial<ScenarioParameters> & { assumptions?: string[]; restored_from?: number }) | null
+  min_spacing_km: number
+  operating_radius_km: number
+  kpis: Kpis | null
+  units_moved: number | null
+}
+
+export async function getRunHistory(limit = 50, signal?: AbortSignal): Promise<RunHistoryRow[]> {
+  const res = await apiFetch(`/run-history?limit=${limit}`, { signal })
+  if (!res.ok) throw new ApiError(await readErrorMessage(res, 'Loading run history failed'))
+  return res.json()
+}
+
+/** Make an earlier run's positions the current plan again (saved as a new run). */
+export function restoreRun(runId: number): Promise<{ run_id: number; restored_from: number; units: number }> {
+  return sendJson('POST', `/runs/${runId}/restore`, undefined, 'Restoring the plan failed')
+}
+
+/** Driver-level assignment status: 'en_route' = dispatched to the staging position. */
+export function setAssignmentStatus(callSign: string, status: 'planned' | 'en_route' | 'in_position') {
+  return sendJson('PATCH', `/ambulances/${encodeURIComponent(callSign)}/assignment-status`, { status }, 'Updating the move failed')
+}

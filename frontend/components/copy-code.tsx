@@ -4,8 +4,8 @@ import { useEffect, useState } from 'react'
 
 const FEEDBACK_MS = 1500
 
-/** "Driver code: PAREL-4821 [Copy]", with brief Copied / Copy failed feedback. */
-export default function CopyCode({ code, label = 'Driver code', className }: { code: string; label?: string; className?: string }) {
+/** "Hospital code: PAREL-4821 [Copy]", with brief Copied / Copy failed feedback. */
+export default function CopyCode({ code, label = 'Hospital code', className }: { code: string; label?: string; className?: string }) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
 
   useEffect(() => {

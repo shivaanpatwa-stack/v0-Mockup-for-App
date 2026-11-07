@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { X } from 'lucide-react'
 import CopyCode from './copy-code'
 import { ApiError, rotateDashboardKey, rotateDriverCode, signOut, type Hospital } from '@/lib/api'
 
@@ -8,9 +9,9 @@ type Rotating = 'code' | 'key'
 
 const CONFIRM: Record<Rotating, { title: string; body: string; action: string }> = {
   code: {
-    title: 'Regenerate driver code?',
+    title: 'Regenerate hospital code?',
     body: 'The current code stops working immediately. Every driver will need to enter the new code in the app.',
-    action: 'Regenerate driver code',
+    action: 'Regenerate hospital code',
   },
   key: {
     title: 'Regenerate dashboard key?',
@@ -81,7 +82,7 @@ export default function HospitalMenu({ hospital, onChanged }: { hospital: Hospit
         </summary>
         <div className="hospital-menu-list" role="menu">
           <div className="menu-code-item">
-            <CopyCode code={hospital.code} label="Driver code" />
+            <CopyCode code={hospital.code} label="Hospital code" />
           </div>
           <div className="menu-divider" />
           <button type="button" role="menuitem" onClick={openKeys}>
@@ -99,9 +100,7 @@ export default function HospitalMenu({ hospital, onChanged }: { hospital: Hospit
       <dialog ref={dialogRef} className="fleet-dialog keys-dialog" onClose={onDialogClose} aria-labelledby="keys-title">
         <div className="fleet-dialog-head">
           <h2 id="keys-title">Hospital keys</h2>
-          <button type="button" className="banner-dismiss" aria-label="Close" onClick={() => dialogRef.current?.close()}>
-            ×
-          </button>
+          <button type="button" className="banner-dismiss" aria-label="Close" onClick={() => dialogRef.current?.close()}><X aria-hidden="true" size={16} /></button>
         </div>
         {error && (
           <p className="controls-error" role="alert">
@@ -110,7 +109,7 @@ export default function HospitalMenu({ hospital, onChanged }: { hospital: Hospit
         )}
 
         <div className="fleet-dialog-section">
-          <h3>Driver code</h3>
+          <h3>Hospital code</h3>
           <CopyCode code={hospital.code} />
           <p className="fleet-dialog-hint">Drivers enter this in the app.</p>
         </div>
@@ -151,7 +150,7 @@ export default function HospitalMenu({ hospital, onChanged }: { hospital: Hospit
           ) : (
             <div className="keys-actions">
               <button type="button" className="keys-cancel" onClick={() => setConfirming('code')}>
-                Regenerate driver code
+                Regenerate hospital code
               </button>
               <button type="button" className="keys-cancel" onClick={() => setConfirming('key')}>
                 Regenerate dashboard key
