@@ -36,10 +36,12 @@ const hospitalIcon: DivIcon = divIcon({
   tooltipAnchor: [HOSPITAL_ICON_SIZE / 2 + 4, 0],
 })
 
+const escapeHtml = (text: string) =>
+  text.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch] ?? ch)
+
+/** The full call sign, never shortened: dispatchers radio units by this ID. */
 function unitLabel(id: string): string {
-  const match = id.match(/^([A-Za-z]+)[-_]?(\d+)$/)
-  if (match) return match[2].padStart(2, '0')
-  return id.replace(/^AMB-?/i, '').padStart(2, '0')
+  return id
 }
 
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -80,19 +82,21 @@ function unitIcon(
     ? 'unit-simulated'
     : 'unit-recommended'
 
-  const html = `<div class="unit-marker unit-${kind} ${stateClass}" aria-label="Unit ${label} (${isAtBase ? 'At Base' : isDeployed ? 'Deployed' : 'Recommended'})">
+  const safe = escapeHtml(label)
+  const w = Math.max(UNIT_ICON_SIZE, 14 + label.length * 7)
+  const html = `<div class="unit-marker unit-${kind} ${stateClass}" aria-label="Unit ${safe} (${isAtBase ? 'At Base' : isDeployed ? 'Deployed' : 'Recommended'})">
     ${isHighlighted ? '<span class="unit-beacon-pulse" aria-hidden="true"></span>' : ''}
     ${isDeployed && !isAtBase ? '<span class="unit-deployed-dot" aria-hidden="true"></span>' : ''}
-    <span class="unit-num">${label}</span>
+    <span class="unit-num">${safe}</span>
   </div>`
 
   return divIcon({
     className: `unit-marker-icon ${isHighlighted ? 'unit-marker-icon-highlighted' : ''}`,
     html,
-    iconSize: [UNIT_ICON_SIZE, UNIT_ICON_SIZE],
-    iconAnchor: [UNIT_ICON_SIZE / 2, UNIT_ICON_SIZE / 2],
+    iconSize: [w, UNIT_ICON_SIZE],
+    iconAnchor: [w / 2, UNIT_ICON_SIZE / 2],
     popupAnchor: [0, -UNIT_ICON_SIZE / 2 - 4],
-    tooltipAnchor: [UNIT_ICON_SIZE / 2 + 4, 0],
+    tooltipAnchor: [w / 2 + 4, 0],
   })
 }
 

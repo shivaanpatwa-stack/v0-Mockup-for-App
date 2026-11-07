@@ -37991,3 +37991,7 @@ details.runs-details[open] .runs-chevron {
   color: #0C4A6E !important;
   font-weight: 700;
 }
+
+/* Full call signs on map markers: pill grows to fit the ID. */
+.unit-marker { width: auto !important; min-width: 28px; padding: 0 6px; white-space: nowrap; border-radius: 999px !important; }
+.unit-marker-icon { width: auto !important; }

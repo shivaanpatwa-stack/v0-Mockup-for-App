@@ -50,13 +50,8 @@ const ASSIGNMENT_LABEL: Record<AssignmentStatus, string> = {
   cancelled: 'cancelled',
 }
 
+/** Call signs are shown exactly as stored: dispatchers radio units by this ID. */
 export function formatAmbulanceId(id: string): string {
-  const match = id.match(/^([A-Za-z]+)[-_]?(\d+)$/)
-  if (match) {
-    const prefix = match[1].toUpperCase()
-    const num = parseInt(match[2], 10)
-    return `${prefix}-${num.toString().padStart(2, '0')}`
-  }
   return id
 }
 
