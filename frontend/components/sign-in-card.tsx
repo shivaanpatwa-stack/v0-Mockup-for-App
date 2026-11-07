@@ -21,7 +21,7 @@ export default function SignInCard() {
       const result = await signIn(code.trim(), key.trim())
       if (result.ok) {
         setKey('')
-        router.replace('/')
+        router.replace('/app')
         return
       }
       // Never say which part was wrong.
@@ -36,7 +36,7 @@ export default function SignInCard() {
   return (
     <form className="start-card" onSubmit={onSubmit}>
       <h2>Sign in to your hospital</h2>
-      <p className="start-hint">Use the driver code and dashboard key you saved when the hospital was registered.</p>
+      <p className="start-hint">Use the hospital code (the one drivers enter in their app) and the dashboard key saved at registration.</p>
       <label className="reg-field">
         Hospital code
         <input

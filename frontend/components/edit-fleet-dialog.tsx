@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { X } from 'lucide-react'
 import type { FormEvent } from 'react'
 import { addAmbulance, ApiError, setAmbulanceStatus, updateHospital, type Hospital } from '@/lib/api'
 import CopyCode from './copy-code'
@@ -78,10 +79,10 @@ export default function EditFleetDialog({ hospital, open, onClose, onChanged }: 
     <dialog ref={dialogRef} className="fleet-dialog" onClose={onClose} aria-labelledby="fleet-dialog-title">
       <div className="fleet-dialog-head">
         <h2 id="fleet-dialog-title">Edit fleet</h2>
-        <button type="button" className="banner-dismiss" aria-label="Close" onClick={onClose}>×</button>
+        <button type="button" className="banner-dismiss" aria-label="Close" onClick={onClose}><X aria-hidden="true" size={16} /></button>
       </div>
       <CopyCode code={hospital.code} className="fleet-dialog-code" />
-      {error && <p className="controls-error" role="alert">{error}<button type="button" className="banner-dismiss" aria-label="Dismiss error" onClick={() => setError(null)}>×</button></p>}
+      {error && <p className="controls-error" role="alert">{error}<button type="button" className="banner-dismiss" aria-label="Dismiss error" onClick={() => setError(null)}><X aria-hidden="true" size={16} /></button></p>}
 
       <form className="fleet-dialog-section" onSubmit={saveHospital}>
         <h3>Hospital</h3>
