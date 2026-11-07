@@ -2461,3 +2461,23 @@ input[type='range'].range::-moz-range-thumb {
     opacity: 0.35;
   }
 }
+
+/* Map controls and the required attribution move above the what-if drawer instead of covering it. */
+.map-wrap.has-drawer .leaflet-bottom {
+  bottom: 248px;
+}
+.map-wrap.has-drawer .leaflet-control-zoom {
+  display: none;
+}
+/* Fresh-eyes review: secondary lines a dispatcher reads at a glance go up to 13px. */
+.recalc-status,
+.move-why,
+.map-legend,
+.legend-note {
+  font-size: var(--fs-13);
+}
+@media (max-width: 900px) {
+  .map-wrap.has-drawer .leaflet-bottom {
+    bottom: 0;
+  }
+}

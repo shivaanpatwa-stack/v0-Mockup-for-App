@@ -45,7 +45,7 @@ export default function LiveMapPage() {
       <h1 className="sr-only">Live map</h1>
       <KpiStrip kpis={plan?.kpis ?? null} coverageKnown={Boolean(plan?.coverageKnown)} uncovered={uncovered} max={plan?.max_response_minutes ?? 20} />
       <div className="live-body">
-        <div className="map-wrap">
+        <div className={`map-wrap${whatIfOpen ? ' has-drawer' : ''}`}>
           <LiveMap
             hour={view.hour}
             hospital={hospital}

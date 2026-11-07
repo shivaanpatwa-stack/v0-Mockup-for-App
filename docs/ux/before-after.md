@@ -77,3 +77,16 @@ With "Product Name" hidden, every page still says what only this product does: M
 ## Fresh-eyes review
 
 A separate agent that never saw the build reviewed only `screens-after/`. Its findings and what was changed are listed in the final summary.
+
+### Fresh-eyes findings and response
+
+| Finding | Response |
+|---|---|
+| Zoom buttons and map credit covered "Use as staging plan" in the What-if drawer | **Fixed**: controls move above the drawer, zoom hidden while it is open (`1440-what-if-drawer-clear.jpg`). |
+| Secondary text (last calculated, reasons, legend) read as too small | **Fixed**: raised from 12 to 13px. The screenshots were scaled to 800px, so the real size was 12px, not 10 to 11. |
+| Monospace used for numbers | Kept on purpose: the brief asks for IBM Plex Mono on data, IDs and times. |
+| Shortcut chips (R, W, ⌘K) everywhere | Kept: 3.6 A and D ask for the shortcut on the button and in the bar. |
+| Visible `[STAT NEEDED]` on the landing page | Kept on purpose until a verified Mumbai figure is supplied. |
+| Unit labels can overlap at city zoom | Known issue (see final summary). |
+| Generic "dark dashboard" look, 4 equal KPI tiles | Partly disagree: the strip is the slim row 3.6 B asks for, and the red alert item leads when wards are uncovered. A bolder single lead number is listed as a follow-up idea. |
+| Large empty areas on Scenarios / Run history with little data | Expected with 1 to 4 test rows; empty states explain the next step. |
