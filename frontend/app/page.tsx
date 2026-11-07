@@ -61,6 +61,7 @@ import WhatIfPanel from '@/components/what-if-panel'
 import FleetTable from '@/components/fleet-table'
 import RunHistoryTable from '@/components/run-history-table'
 import { WARD_CENTROIDS } from '@/lib/ward-names'
+import { planFromResult, planFromRun, type Plan } from '@/lib/plan'
 
 
 
@@ -326,7 +327,7 @@ const NETWORK_ERROR = "Can't reach the server. Is the backend running?"
 
 
 
-type Run = OptimizeResult & { hour: number }
+type Run = Plan
 
 
 
@@ -538,6 +539,21 @@ export default function Page() {
 
   }, [refreshRuns])
 
+  // After a reload, show the latest saved plan instead of an empty "run Recalculate" state.
+  const [restoredLatest, setRestoredLatest] = useState(false)
+  useEffect(() => {
+    if (restoredLatest || run || !recentRuns) return
+    setRestoredLatest(true)
+    const latest = recentRuns.find((r) => r.status === 'succeeded')
+    if (!latest) return
+    getRun(latest.run_id)
+      .then((detail) => {
+        setRun((current) => current ?? planFromRun(detail))
+        setHour((h) => (run ? h : detail.target_hour))
+      })
+      .catch((err) => console.warn('Loading the latest plan failed', err))
+  }, [recentRuns, run, restoredLatest])
+
 
 
   async function refreshHospital() {
@@ -672,7 +688,7 @@ export default function Page() {
 
       const result: OptimizeResult = await res.json()
 
-      setRun({ ...result, hour })
+      setRun(planFromResult(result, hour))
 
       setFleetChanged(false)
       setConfirmationMessage(`Positions optimized for ${formatHour(hour)} (${result.assignments.length} units assigned)`)
@@ -796,7 +812,7 @@ export default function Page() {
 
 
 
-      {!viewing && !simulation && run && !run.coverage_guaranteed && (
+      {!viewing && !simulation && run && run.coverageKnown && !run.coverage_guaranteed && (
 
         <div className="controls-notice coverage-notice" role="status">
 

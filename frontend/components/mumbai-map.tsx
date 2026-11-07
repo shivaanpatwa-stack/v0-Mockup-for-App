@@ -331,7 +331,8 @@ export default function MumbaiMap({
           </button>
         </div>
 
-        {/* Dynamic Mode Impact Callout */}
+        {/* Impact callout: only with real KPIs (no made-up fallback numbers). */}
+        {kpis && (
         <div className={`map-view-callout ${viewMode === 'before' ? 'callout-before' : 'callout-after'}`}>
           {viewMode === 'before' ? (
             <>
@@ -346,7 +347,7 @@ export default function MumbaiMap({
               <Sparkles className="w-3.5 h-3.5 text-sky-700 flex-shrink-0" />
               <span>
                 <strong>Optimized Staging:</strong> Distributed fleet. 15-min isochrone expands across{' '}
-                <strong>{isochroneWards.size} wards</strong> ({kpis?.demand_within_15_min_pct.after ? `${Math.round(kpis.demand_within_15_min_pct.after)}%` : '90%+'} city demand,{' '}
+                <strong>{isochroneWards.size} wards</strong> ({kpis.demand_within_15_min_pct.after != null ? `${Math.round(kpis.demand_within_15_min_pct.after)}%` : 'n/a'} of predicted demand,{' '}
                 {kpis?.avg_response_min.before && kpis?.avg_response_min.after
                   ? `−${(kpis.avg_response_min.before - kpis.avg_response_min.after).toFixed(1)}m faster`
                   : 'faster'}
@@ -355,6 +356,7 @@ export default function MumbaiMap({
             </>
           )}
         </div>
+        )}
       </div>
 
       {/* 2. Interactive Map Layer Selector */}
