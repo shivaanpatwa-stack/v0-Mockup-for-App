@@ -740,6 +740,68 @@ export default function Page() {
 
 
 
+      {/* 4 & 5. Map + Optimization Impact */}
+
+      <section id="analytics" className="content-grid">
+
+        <div className="map-card">
+
+          <h2>Ward demand at {formatHour(mapHour)}</h2>
+
+          <div className="map">
+
+            <MumbaiMap
+
+              hour={mapHour}
+
+              hospital={hospital}
+
+              assignments={viewing ? pastRunMarkers(viewing) : simulation ? simulation.assignments : run?.assignments}
+
+              fleet={fleet}
+              simulated={!viewing && simulation !== null}
+
+              simulatedRadiusKm={viewing ? null : simulation?.parameters.operating_radius_km}
+              kpis={viewing ? viewing.kpis : simulation ? simulation.kpis : run?.kpis ?? null}
+              hospitalCandidateId={viewing?.kpis?.baseline?.hospital_candidate_id ?? run?.kpis?.baseline?.hospital_candidate_id}
+              focusTarget={mapFocus}
+              highlightedUnitId={highlightedAmbulanceId}
+              onHighlightUnit={setHighlightedAmbulanceId}
+
+            />
+
+          </div>
+
+          <MapLegend showSimulated={!viewing && simulation !== null} />
+
+        </div>
+
+        <aside className="stats-column" aria-label="Plan results">
+
+          <KpiStrip
+
+            kpis={viewing ? viewing.kpis : simulation ? simulation.kpis : run?.kpis ?? null}
+
+            mode={viewing ? 'past' : simulation ? 'simulation' : 'live'}
+
+            pastLabel={viewing ? `Run #${viewing.run_id}` : undefined}
+
+            hourLabel={formatHour(mapHour)}
+
+            totalWeightedScore={viewing ? viewing.total_weighted_score : simulation ? simulation.total_weighted_score : run?.total_weighted_score}
+            selectedHour={mapHour}
+            onHourSelect={setHour}
+            recentRuns={recentRuns}
+            onZoomToWard={handleZoomToWard}
+
+          />
+
+        </aside>
+
+      </section>
+
+
+
       {/* 2. Controls Bar (One Row, Three Groups) */}
 
       <OptimizationControls
@@ -855,68 +917,6 @@ export default function Page() {
         />
 
       )}
-
-
-
-      {/* 4 & 5. Map + Optimization Impact */}
-
-      <section id="analytics" className="content-grid">
-
-        <div className="map-card">
-
-          <h2>Ward demand at {formatHour(mapHour)}</h2>
-
-          <div className="map">
-
-            <MumbaiMap
-
-              hour={mapHour}
-
-              hospital={hospital}
-
-              assignments={viewing ? pastRunMarkers(viewing) : simulation ? simulation.assignments : run?.assignments}
-
-              fleet={fleet}
-              simulated={!viewing && simulation !== null}
-
-              simulatedRadiusKm={viewing ? null : simulation?.parameters.operating_radius_km}
-              kpis={viewing ? viewing.kpis : simulation ? simulation.kpis : run?.kpis ?? null}
-              hospitalCandidateId={viewing?.kpis?.baseline?.hospital_candidate_id ?? run?.kpis?.baseline?.hospital_candidate_id}
-              focusTarget={mapFocus}
-              highlightedUnitId={highlightedAmbulanceId}
-              onHighlightUnit={setHighlightedAmbulanceId}
-
-            />
-
-          </div>
-
-          <MapLegend showSimulated={!viewing && simulation !== null} />
-
-        </div>
-
-        <aside className="stats-column">
-
-          <KpiStrip
-
-            kpis={viewing ? viewing.kpis : simulation ? simulation.kpis : run?.kpis ?? null}
-
-            mode={viewing ? 'past' : simulation ? 'simulation' : 'live'}
-
-            pastLabel={viewing ? `Run #${viewing.run_id}` : undefined}
-
-            hourLabel={formatHour(mapHour)}
-
-            totalWeightedScore={viewing ? viewing.total_weighted_score : simulation ? simulation.total_weighted_score : run?.total_weighted_score}
-            selectedHour={mapHour}
-            onHourSelect={setHour}
-            recentRuns={recentRuns}
-            onZoomToWard={handleZoomToWard}
-
-          />
-
-        </aside>
-
-      </section>
 
 
 

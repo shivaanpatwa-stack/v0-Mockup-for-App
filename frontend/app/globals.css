@@ -37995,3 +37995,23 @@ details.runs-details[open] .runs-chevron {
 /* Full call signs on map markers: pill grows to fit the ID. */
 .unit-marker { width: auto !important; min-width: 28px; padding: 0 6px; white-space: nowrap; border-radius: 999px !important; }
 .unit-marker-icon { width: auto !important; }
+
+/* Map first: visible on the first screen at 1440x900 and on phones. */
+.content-grid .map { height: min(62vh, 640px) !important; min-height: 360px; }
+@media (max-width: 767px) {
+  .content-grid { display: block !important; }
+  .content-grid .map-card { width: 100% !important; min-width: 0 !important; }
+  .content-grid .map { height: 58vh !important; min-height: 320px; }
+  /* Results become a bottom sheet over the full-width map, never a column beside it. */
+  .content-grid .stats-column {
+    position: fixed !important; left: 0; right: 0; bottom: 0; z-index: 1000;
+    width: auto !important; max-height: 38vh; overflow-y: auto;
+    border-radius: 14px 14px 0 0; box-shadow: 0 -6px 20px rgba(0,0,0,.18);
+    background: var(--card, #fff); padding: 6px 12px 12px;
+  }
+  .content-grid .stats-column::before {
+    content: ""; display: block; width: 40px; height: 4px; border-radius: 2px;
+    background: rgba(0,0,0,.2); margin: 4px auto 8px;
+  }
+  .dashboard-shell { padding-bottom: 40vh; }
+}
