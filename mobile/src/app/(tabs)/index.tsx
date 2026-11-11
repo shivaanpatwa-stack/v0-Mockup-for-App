@@ -61,7 +61,7 @@ export default function AssignmentScreen() {
     <>
       <ScrollView
         contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}>
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />}>
         <RateLimitNotice until={rateLimitUntil} />
         {offline ? (
           <OfflineNotice cachedAt={dataAt} onRetry={onRefresh} retrying={refreshing} />

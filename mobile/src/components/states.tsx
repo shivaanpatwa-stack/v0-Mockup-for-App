@@ -5,7 +5,7 @@ import { Button, Card } from './ui'
 export function LoadingState({ label = 'Loading…' }: { label?: string }) {
   return (
     <View style={styles.center}>
-      <ActivityIndicator color={colors.primary} />
+      <ActivityIndicator color={colors.accent} />
       <Text style={styles.muted}>{label}</Text>
     </View>
   )

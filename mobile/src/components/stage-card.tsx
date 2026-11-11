@@ -96,7 +96,7 @@ export function StageCard({ assignment, stageTimes, replannedAt, busy, offline, 
       {stageIndex === 2 && (
         <View style={styles.hold}>
           <View style={styles.holdIcon}>
-            <Timer size={26} color={colors.primary} />
+            <Timer size={26} color={colors.accent} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.holdTitle}>Hold position until {formatIst(assignment.valid_to)}</Text>
@@ -127,6 +127,6 @@ const styles = StyleSheet.create({
   lineDone: { backgroundColor: colors.primary },
   hold: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: 10, backgroundColor: colors.blueBg },
   holdIcon: { width: 52, height: 52, borderRadius: 12, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center' },
-  holdTitle: { fontSize: 18, fontWeight: '800', color: colors.primary },
+  holdTitle: { fontSize: 18, fontWeight: '800', color: colors.accent },
   holdText: { fontSize: 15, color: colors.muted, marginTop: 2 },
 })

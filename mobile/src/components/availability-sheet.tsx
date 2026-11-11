@@ -117,8 +117,8 @@ export function AvailabilitySheet({ visible, current, onChange, onClose }: Props
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(15,23,42,0.35)' },
-  sheet: { backgroundColor: colors.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingTop: 10 },
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)' },
+  sheet: { backgroundColor: colors.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingTop: 10 },
   handle: { alignSelf: 'center', width: 52, height: 5, borderRadius: 3, backgroundColor: colors.border, marginBottom: 18 },
   title: { fontSize: 24, fontWeight: '800', color: colors.text },
   subtitle: { fontSize: 15, color: colors.muted, marginTop: 4, marginBottom: 16 },
@@ -131,7 +131,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.white,
+    backgroundColor: colors.raised,
   },
   dot: { width: 14, height: 14, borderRadius: 7, alignSelf: 'flex-start', marginTop: 5 },
   optionText: { flex: 1 },

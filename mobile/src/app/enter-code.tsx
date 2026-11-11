@@ -150,7 +150,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.white,
+    backgroundColor: colors.raised,
     paddingHorizontal: 16,
     fontSize: 20,
     fontWeight: '700',

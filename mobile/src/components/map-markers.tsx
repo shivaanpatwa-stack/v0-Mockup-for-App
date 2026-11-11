@@ -21,8 +21,8 @@ export function HospitalMarkerView() {
 export function UnitMarkerView({ label, type }: { label: string; type: UnitType }) {
   const solid = type === 'ALS'
   return (
-    <View style={[styles.unit, { backgroundColor: solid ? colors.primary : colors.white }]}>
-      <Text style={[styles.unitText, { color: solid ? colors.white : colors.primary }]} numberOfLines={1}>
+    <View style={[styles.unit, { backgroundColor: solid ? colors.primary : colors.card }]}>
+      <Text style={[styles.unitText, { color: solid ? colors.white : colors.accent }]} numberOfLines={1}>
         {label}
       </Text>
     </View>

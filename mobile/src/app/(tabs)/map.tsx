@@ -137,7 +137,7 @@ export default function MapScreen() {
         accessibilityLabel="Recenter"
         onPress={() => setRecenterToken((n) => n + 1)}
         style={({ pressed }) => [styles.recenter, { bottom: cardHeight + CARD_MARGIN + 12 }, pressed && { opacity: 0.8 }]}>
-        <LocateFixed size={18} color={colors.primary} />
+        <LocateFixed size={18} color={colors.accent} />
         <Text style={styles.recenterText}>Recenter</Text>
       </Pressable>
 
@@ -244,7 +244,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.card,
   },
-  recenterText: { fontSize: 14, fontWeight: '700', color: colors.primary },
+  recenterText: { fontSize: 14, fontWeight: '700', color: colors.accent },
   // Flat: a 1px border and no shadow.
   card: {
     position: 'absolute',
