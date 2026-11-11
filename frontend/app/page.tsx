@@ -122,7 +122,7 @@ export default function Landing() {
               <ol className="callout-list">
                 <li><span className="callout-num" aria-hidden="true">1</span><span><strong>Forecast.</strong> Each of the 24 wards gets a demand score for every hour. Drag the time bar to see where the city will need ambulances at 08:00, 18:00 or 03:00.</span></li>
                 <li><span className="callout-num" aria-hidden="true">2</span><span><strong>Recommendation.</strong> Recalculate staging picks one waiting position per unit, a minimum distance apart, and lists each move with the ward it covers and why.</span></li>
-                <li><span className="callout-num" aria-hidden="true">3</span><span><strong>Result.</strong> Before anything changes, you see the difference: units moved, share of demand reachable in 15 minutes, and average response. Apply it, or discard it.</span></li>
+                <li><span className="callout-num" aria-hidden="true">3</span><span><strong>Result.</strong> Before anything changes, you see the difference: units moved, share of demand reachable in 20 minutes, and average response. Apply it, or discard it.</span></li>
               </ol>
             </div>
           </section>

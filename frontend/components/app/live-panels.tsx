@@ -47,7 +47,7 @@ function Delta({ before, after, unit, better }: { before: number | null | undefi
 export function KpiStrip({ kpis, coverageKnown, uncovered, max }: { kpis: Kpis | null; coverageKnown: boolean; uncovered: string[]; max: number }) {
   const { inService, fleet, hour, plan, showUncovered, setShowUncovered } = useApp()
   const [flash, setFlash] = useState(false)
-  const sig = kpis ? `${kpis.avg_response_min.after}|${kpis.demand_within_15_min_pct.after}` : ''
+  const sig = kpis ? `${kpis.avg_response_min.after}|${kpis.demand_within_20_min_pct.after}` : ''
   const prev = useRef(sig)
   useEffect(() => {
     if (prev.current && sig && prev.current !== sig) {
@@ -70,11 +70,11 @@ export function KpiStrip({ kpis, coverageKnown, uncovered, max }: { kpis: Kpis |
         </span>
       </div>
       <div className={cls}>
-        <span className="kpi-label">Demand reachable in 15 min</span>
+        <span className="kpi-label">Demand reachable in 20 min</span>
         <span className="kpi-value">
-          <span className="num">{num(kpis?.demand_within_15_min_pct.after, 0)}</span>
+          <span className="num">{num(kpis?.demand_within_20_min_pct.after, 0)}</span>
           <span className="kpi-unit">%</span>
-          <Delta before={kpis?.demand_within_15_min_pct.before} after={kpis?.demand_within_15_min_pct.after} unit=" pts" better="higher" />
+          <Delta before={kpis?.demand_within_20_min_pct.before} after={kpis?.demand_within_20_min_pct.after} unit=" pts" better="higher" />
         </span>
       </div>
       <div className={cls}>
@@ -129,8 +129,8 @@ function diffSummary(next: OptimizeResult, current: OptimizeResult | null) {
   ]
   if (k) {
     parts.push({
-      label: '15-min reach',
-      value: `${num(c?.demand_within_15_min_pct.after ?? k.demand_within_15_min_pct.before, 0)}% to ${num(k.demand_within_15_min_pct.after, 0)}%`,
+      label: '20-min reach',
+      value: `${num(c?.demand_within_20_min_pct.after ?? k.demand_within_20_min_pct.before, 0)}% to ${num(k.demand_within_20_min_pct.after, 0)}%`,
     })
     parts.push({
       label: 'Avg response',
@@ -397,13 +397,15 @@ export function TimeScrubber() {
 }
 
 export function MapLegend({ showUncovered }: { showUncovered: boolean }) {
+  const { plan } = useApp()
+  const targetMin = plan?.max_response_minutes ?? 20
   return (
     <aside className="map-legend" aria-label="Map legend">
       <strong style={{ fontWeight: 500 }}>Predicted demand</strong> <span className="muted">(relative risk score, 0 to 1)</span>
       <div className="legend-ramp" aria-hidden="true"><span /><span /><span /><span /></div>
       <div className="legend-ends"><span>Low &lt;0.20</span><span>Very high &gt;0.70</span></div>
       <div className="legend-rows">
-        <div className="legend-row"><span className="legend-sym reach" aria-hidden="true" /> Reachable in 15 min</div>
+        <div className="legend-row"><span className="legend-sym reach" aria-hidden="true" /> Reachable in {targetMin} min</div>
         {showUncovered && <div className="legend-row"><span className="legend-sym uncovered" aria-hidden="true" /> Outside the response target</div>}
         <div className="legend-row"><span className="legend-sym unit" aria-hidden="true" /> Unit (ALS solid, BLS outline)</div>
         <div className="legend-row"><span className="legend-sym ghost" aria-hidden="true" /> Current position, arrow to new</div>
@@ -417,14 +419,15 @@ export function MapLegend({ showUncovered }: { showUncovered: boolean }) {
 }
 
 export function LayerToggles() {
-  const { layers, setLayers } = useApp()
+  const { layers, setLayers, plan } = useApp()
+  const targetMin = plan?.max_response_minutes ?? 20
   const toggle = (k: keyof typeof layers) => setLayers({ ...layers, [k]: !layers[k] })
   return (
     <div className="map-side-controls">
       <fieldset className="layer-toggles" style={{ margin: 0, padding: 0 }}>
         <legend className="sr-only">Map layers</legend>
         <label><input type="checkbox" checked={layers.demand} onChange={() => toggle('demand')} /> Demand</label>
-        <label><input type="checkbox" checked={layers.reach} onChange={() => toggle('reach')} /> 15-min reach</label>
+        <label><input type="checkbox" checked={layers.reach} onChange={() => toggle('reach')} /> {targetMin}-min reach</label>
         <label><input type="checkbox" checked={layers.units} onChange={() => toggle('units')} /> Units</label>
       </fieldset>
     </div>

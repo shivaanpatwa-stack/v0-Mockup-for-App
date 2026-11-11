@@ -27,15 +27,25 @@ export function riskColor(score: number): string {
 
 const wardCode = (feature?: Feature): string | undefined => feature?.properties?.ward_code
 
-function wardStyle(feature: Feature | undefined, scores: RiskLookup | null, showDemand = true): PathOptions {
+function wardStyle(feature: Feature | undefined, scores: RiskLookup | null, showDemand = true, isFocused = false): PathOptions {
   const code = wardCode(feature)
   const score = code && scores ? scores[code] : undefined
   const fill = score !== undefined ? riskColor(score) : mapColor('no-data')
 
+  if (isFocused) {
+    return {
+      color: '#FFFFFF', // Crisp pure white for selected/focused ward
+      opacity: 1,
+      weight: 3.5, // Thick outline
+      fillColor: fill,
+      fillOpacity: showDemand ? Math.min(1, WARD_FILL_OPACITY + 0.2) : 0.2,
+    }
+  }
+
   return {
-    color: '#111413', // thin canvas-coloured ward borders
-    opacity: 0.9,
-    weight: 1,
+    color: '#000000', // Crisp black zone borders
+    opacity: 0.95,
+    weight: 1.2,
     fillColor: fill,
     fillOpacity: showDemand ? WARD_FILL_OPACITY : 0.05,
   }
@@ -133,10 +143,14 @@ export default function WardRiskLayer({
   hour,
   showDemand = true,
   showRisk = true,
+  pane,
+  focusWard,
 }: {
   hour: number
   showDemand?: boolean
   showRisk?: boolean
+  pane?: string
+  focusWard?: string | null
 }) {
   const [zones, setZones] = useState<FeatureCollection | null>(null)
 
@@ -145,6 +159,7 @@ export default function WardRiskLayer({
   const [loadFailed, setLoadFailed] = useState(false)
   const layerRef = useRef<LeafletGeoJSON | null>(null)
   const scoresRef = useRef<RiskLookup>(scores)
+  const hoveredWardRef = useRef<string | null>(null)
 
   // Load GeoJSON polygons
   useEffect(() => {
@@ -186,14 +201,25 @@ export default function WardRiskLayer({
     }
   }, [hour])
 
-  // Restyle the existing layer whenever scores, showDemand change
+  // Restyle the existing layer whenever scores, showDemand, or focusWard change
   useEffect(() => {
     scoresRef.current = scores
     layerRef.current?.eachLayer((layer) => {
       const path = layer as Path & { feature?: Feature }
-      path.setStyle(wardStyle(path.feature, scores, showDemand))
+      const code = wardCode(path.feature)
+      const isFocused = code === focusWard
+      const isHovered = code && code === hoveredWardRef.current
+      if (isHovered) {
+        path.setStyle({ weight: 3.5, color: '#FFFFFF', opacity: 1 })
+        path.bringToFront()
+      } else {
+        path.setStyle(wardStyle(path.feature, scores, showDemand, isFocused))
+        if (isFocused) {
+          path.bringToFront()
+        }
+      }
     })
-  }, [scores, showDemand])
+  }, [scores, showDemand, focusWard])
 
   if (!zones) return null
 
@@ -207,13 +233,22 @@ export default function WardRiskLayer({
     )
     layer.on({
       mouseover: (e: LeafletMouseEvent) => {
+        const code = wardCode(feature)
+        hoveredWardRef.current = code ?? null
         const path = e.target as Path
-        // Highlight active ward with dark navy outline
-        path.setStyle({ weight: 2, color: '#e8ebe9', opacity: 1 })
+        // Highlight active / hovered ward with crisp thick pure white outline
+        path.setStyle({ weight: 3.5, color: '#FFFFFF', opacity: 1 })
         path.bringToFront()
       },
       mouseout: (e: LeafletMouseEvent) => {
-        ;(e.target as Path).setStyle(wardStyle(feature, scoresRef.current, showDemand))
+        const code = wardCode(feature)
+        if (hoveredWardRef.current === code) {
+          hoveredWardRef.current = null
+        }
+        const isFocused = code === focusWard
+        const path = e.target as Path
+        // Immediately revert to normal style with zero delay
+        path.setStyle(wardStyle(feature, scoresRef.current, showDemand, isFocused))
       },
     })
   }
@@ -224,7 +259,8 @@ export default function WardRiskLayer({
         key={`ward-layer-${hour}-${showDemand}`}
         ref={layerRef}
         data={zones}
-        style={(feature) => wardStyle(feature, scores, showDemand)}
+        pane={pane}
+        style={(feature) => wardStyle(feature, scores, showDemand, wardCode(feature) === focusWard)}
         onEachFeature={onEachFeature}
       />
       {showRisk && <WardCodeLabels zones={zones} />}

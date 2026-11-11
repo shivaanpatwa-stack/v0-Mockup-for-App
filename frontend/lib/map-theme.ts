@@ -33,16 +33,17 @@ export const DEMAND_RANGE: Record<DemandLevel, string> = {
 }
 
 /**
- * Single-hue steel-blue ramp (about 240 degrees), dark to light: low demand recedes into the dark
- * map, high demand is the lightest. Checked with the dataviz ordinal validator against #181c1b
- * (monotone lightness, visible steps, light end 2.12:1). Blue stays clear of brand green, critical
- * red and warning amber, and reads as "predicted". Bands are unchanged.
+ * Intentional stone & terracotta choropleth theme:
+ * - low: muted stone/sand (#AFA79A)
+ * - moderate: warm taupe (#9B7E68)
+ * - high: muted terracotta (#875E4C)
+ * - very-high: deep terracotta/brown (#713C32)
  */
 export const DEMAND_COLORS: Record<DemandLevel, string> = {
-  'very-high': '#93b3d3',
-  high: '#6b90b4',
-  moderate: '#4f6f8f',
-  low: '#3b5266',
+  'very-high': '#713C32',
+  high: '#875E4C',
+  moderate: '#9B7E68',
+  low: '#AFA79A',
 }
 
 export const DEMAND_DESCRIPTION: Record<
@@ -73,15 +74,15 @@ export type MapColor =
  */
 export const MAP_HEX_COLORS: Record<MapColor, string> = {
   navy: '#0C4A6E',
-  'very-high': '#882414',
-  high: '#C45A3C',
-  moderate: '#DF9B6D',
-  medium: '#DF9B6D',
-  low: '#EEDEC5',
-  border: '#FFFFFF', // Thin white borders
+  'very-high': '#713C32',
+  high: '#875E4C',
+  moderate: '#9B7E68',
+  medium: '#9B7E68',
+  low: '#AFA79A',
+  border: '#000000', // Crisp black zone borders
   ink: '#1C1917',
   muted: '#78716C',
-  'no-data': '#E8DEC8', // Soft neutral sand fallback
+  'no-data': '#8A847A', // Muted stone neutral fallback
   surface: '#FAF7F2',
 }
 

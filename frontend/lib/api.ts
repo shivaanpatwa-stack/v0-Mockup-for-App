@@ -447,7 +447,12 @@ export type SavedScenario = {
   created_at: string
 }
 
-export type ScenarioSummary = { avg_response_min: number | null; reach_15_pct: number | null; wards_covered: number | null }
+export type ScenarioSummary = {
+  avg_response_min: number | null
+  reach_20_pct?: number | null
+  reach_15_pct?: number | null
+  wards_covered: number | null
+}
 
 export async function getScenarios(): Promise<SavedScenario[]> {
   const res = await apiFetch('/scenarios')

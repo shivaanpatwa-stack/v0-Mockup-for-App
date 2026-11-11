@@ -67,7 +67,7 @@ export default function ScenariosPage() {
                 <th>Name</th>
                 <th>Assumes</th>
                 <th className="num-cell">Avg response</th>
-                <th className="num-cell">15-min reach</th>
+                <th className="num-cell">20-min reach</th>
                 <th className="num-cell">Wards within 20 min</th>
                 <th>Saved</th>
                 <th><span className="sr-only">Actions</span></th>
@@ -79,7 +79,7 @@ export default function ScenariosPage() {
                   <td>{s.name}</td>
                   <td className="muted">{describeScenario(s.parameters)}</td>
                   <td className="num-cell">{num(s.result_summary?.avg_response_min)} min</td>
-                  <td className="num-cell">{num(s.result_summary?.reach_15_pct, 0)}%</td>
+                  <td className="num-cell">{num(s.result_summary?.reach_20_pct ?? s.result_summary?.reach_15_pct, 0)}%</td>
                   <td className="num-cell">{s.result_summary?.wards_covered ?? '–'}</td>
                   <td className="mono">{formatDayClock(s.created_at)}</td>
                   <td style={{ textAlign: 'right' }}>

@@ -12,7 +12,7 @@ import { WARD_CENTROIDS, WARD_NAMES } from '@/lib/ward-names'
 import type { AmbulanceAssignment, Hospital } from '@/lib/api'
 
 const WARDS_URL = '/data/wards_simplified.geojson'
-const REACH_MINUTES = 15
+const REACH_MINUTES = 20
 const MUMBAI_BOUNDS: [[number, number], [number, number]] = [
   [18.85, 72.7],
   [19.35, 73.1],
@@ -27,8 +27,9 @@ export type LiveMapProps = {
   /** Dashed outline pins: the units are a scenario or an unapplied preview. */
   unitsAreScenario?: boolean
   ghosts?: Ghost[]
-  /** Candidate ids whose 15-minute reach is outlined. */
+  /** Candidate ids whose reach is outlined. */
   reachFrom?: string[]
+  reachMinutes?: number
   uncoveredWards?: string[]
   layers?: { demand: boolean; reach: boolean; units: boolean }
   focusWard?: string | null
@@ -95,6 +96,7 @@ export default function LiveMap({
   unitsAreScenario = false,
   ghosts = [],
   reachFrom = [],
+  reachMinutes,
   uncoveredWards = [],
   layers = { demand: true, reach: true, units: true },
   focusWard,
@@ -117,7 +119,7 @@ export default function LiveMap({
     }
   }, [])
 
-  const reach = useMemo(() => getIsochroneWards(matrix, reachFrom, REACH_MINUTES), [matrix, reachFrom])
+  const reach = useMemo(() => getIsochroneWards(matrix, reachFrom, reachMinutes ?? REACH_MINUTES), [matrix, reachFrom, reachMinutes])
   const reachGeo = useMemo<FeatureCollection | null>(
     () => (wards && reach.size ? { ...wards, features: wards.features.filter((f) => reach.has(f.properties?.ward_code)) } : null),
     [wards, reach],
@@ -140,8 +142,7 @@ export default function LiveMap({
       minZoom={10}
       maxBounds={MUMBAI_BOUNDS}
       maxBoundsViscosity={0.8}
-      preferCanvas
-      scrollWheelZoom={!mini}
+      scrollWheelZoom={true}
       zoomControl={false}
       attributionControl
       style={{ width: '100%', height: '100%' }}
@@ -153,23 +154,29 @@ export default function LiveMap({
           <TileLayer url={TILE_URL_DARK_LABELS} subdomains="abcd" />
         </Pane>
       )}
-      <WardRiskLayer hour={hour} showDemand={layers.demand} showRisk={!mini} />
-      {layers.reach && reachGeo && (
-        <GeoJSON
-          key={`reach-${[...reach].sort().join(',')}`}
-          data={reachGeo}
-          interactive={false}
-          style={{ color: '#e8ebe9', weight: 1.5, opacity: 0.85, fillColor: '#e8ebe9', fillOpacity: 0.06 }}
-        />
-      )}
-      {uncoveredGeo && (
-        <GeoJSON
-          key={`unc-${uncoveredWards.join(',')}`}
-          data={uncoveredGeo}
-          interactive={false}
-          style={{ color: '#d93025', weight: 2, opacity: 1, dashArray: '5 4', fill: false }}
-        />
-      )}
+      <Pane name="ward-risk-pane" style={{ zIndex: 400 }}>
+        <WardRiskLayer hour={hour} showDemand={layers.demand} showRisk={!mini} pane="ward-risk-pane" focusWard={focusWard} />
+      </Pane>
+      <Pane name="reach-pane" style={{ zIndex: 420, pointerEvents: 'none' }}>
+        {layers.reach && reachGeo && (
+          <GeoJSON
+            key={`reach-${[...reach].sort().join(',')}`}
+            data={reachGeo}
+            interactive={false}
+            pane="reach-pane"
+            style={{ color: '#D6D1C8', weight: 1.5, opacity: 0.8, fillColor: '#D6D1C8', fillOpacity: 0.08 }}
+          />
+        )}
+        {uncoveredGeo && (
+          <GeoJSON
+            key={`unc-${uncoveredWards.join(',')}`}
+            data={uncoveredGeo}
+            interactive={false}
+            pane="reach-pane"
+            style={{ color: '#d93025', weight: 2, opacity: 1, dashArray: '5 4', fill: false }}
+          />
+        )}
+      </Pane>
       {hospital && (
         <Marker position={[hospital.lat, hospital.lng]} icon={baseIcon} keyboard={false} zIndexOffset={-100}>
           <Tooltip className="map-tooltip" direction="top" offset={[0, -14]}>
@@ -209,7 +216,7 @@ export default function LiveMap({
             </Tooltip>
           </Marker>
         ))}
-      {!mini && <ZoomControl position="bottomright" />}
+      <ZoomControl position={mini ? 'topright' : 'bottomright'} />
       {!mini && <FocusWard ward={focusWard} />}
       {mini && <FitUnits points={fitPoints} />}
     </MapContainer>

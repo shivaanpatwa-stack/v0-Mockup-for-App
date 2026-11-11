@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic'
 import { useMemo, useState } from 'react'
-import { ArrowRight, Check, Pencil } from 'lucide-react'
+import { ArrowRight, Check, Minus, Pencil, Plus } from 'lucide-react'
 import EditFleetDialog from '@/components/edit-fleet-dialog'
 import { SortHeader, sortBy, type SortState } from '@/components/app/sort'
 import { haversineKm, movesFor, useApp } from '@/lib/app-state'
@@ -28,6 +28,7 @@ export default function StagingPlanPage() {
   const { plan, fleet, hospital, refreshHospital, refreshFleet } = useApp()
   const [hover, setHover] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
+  const [maximized, setMaximized] = useState(false)
   const [sort, setSort] = useState<SortState<Key>>({ key: 'call', dir: 1 })
 
   const moves = useMemo(() => (plan ? movesFor(plan.assignments, fleet, hospital) : []), [plan, fleet, hospital])
@@ -107,8 +108,20 @@ export default function StagingPlanPage() {
           )}
         </section>
         <aside aria-label="Move preview">
-          <h2 className="section-title" style={{ marginTop: 0 }}>{hovered ? `Preview: ${hovered.callSign}` : 'Preview'}</h2>
-          <div className="mini-map" style={{ height: 320 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <h2 className="section-title" style={{ margin: 0 }}>{hovered ? `Preview: ${hovered.callSign}` : 'Preview'}</h2>
+            <button
+              type="button"
+              className="btn btn-icon btn-sm"
+              title={maximized ? 'Minimize preview (-)' : 'Maximize preview (+)'}
+              aria-label={maximized ? 'Minimize preview' : 'Maximize preview'}
+              onClick={() => setMaximized(!maximized)}
+              style={{ width: 28, height: 28 }}
+            >
+              {maximized ? <Minus size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}
+            </button>
+          </div>
+          <div className="mini-map" style={{ height: maximized ? 520 : 320, transition: 'height 0.2s ease-out' }}>
             <LiveMap
               mini
               hour={plan?.hour ?? 0}
