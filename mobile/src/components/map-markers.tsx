@@ -34,5 +34,5 @@ const styles = StyleSheet.create({
   hospital: { width: 34, height: 34, borderRadius: 8, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   bar: { backgroundColor: colors.white, borderRadius: 1 },
   unit: { width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  unitText: { fontSize: 14, fontWeight: '800' },
+  unitText: { fontSize: 14, fontWeight: '700' },
 })

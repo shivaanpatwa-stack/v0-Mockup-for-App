@@ -24,8 +24,9 @@ the "Position updated" banner and resets the stepper to *Planned*.
 (`{name, lat, lng}`) and `cache.unit` (`{call_sign, type, status, current_assignment, cachedAt}`) to AsyncStorage, at
 most one write every 5 s (`src/state/fleet.tsx`). When the server can't be reached (network failure or 5xx; not 401,
 403 or 429) the Assignment and Map tabs render from it with the banner "Can't reach the server. Showing last known
-position. Cached at 9:02 PM" and Retry, plus "Data may be out of date" once it is over 30 minutes old. Start moving,
-I've arrived and Change availability are disabled ("Reconnect to update"); actions are never queued or replayed. A cached
+position. Cached at 9:02 PM" and Retry, plus "Data may be out of date" once it is over 30 minutes old. The action bar's
+button shows "Reconnect to update" and is disabled, and the status pill (which opens availability) is disabled too;
+actions are never queued or replayed. The header's freshness line also reads "Offline · data from 9:02 PM". A cached
 plan past its end shows "plan has ended". When a poll succeeds again the banner goes and "Back online." shows briefly.
 The cache is cleared by Switch unit, Change hospital and any 401.
 

@@ -2,12 +2,13 @@ import { Redirect, useRouter } from 'expo-router'
 import { useCallback, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { ProfileButton } from '@/components/app-header'
+import { ProfileMenu } from '@/components/profile-menu'
 import { ErrorNotice, RateLimitNotice } from '@/components/notice-banner'
 import { EmptyState, LoadingState } from '@/components/states'
 import { Button, StatusBadge, TypeBadge } from '@/components/ui'
 import { colors } from '@/constants'
 import { useFocusedPolling } from '@/hooks/use-focused-polling'
+import { displayName } from '@/lib/format'
 import { useFleet } from '@/state/fleet'
 
 export default function SelectUnitScreen() {
@@ -45,10 +46,10 @@ export default function SelectUnitScreen() {
         <View style={styles.barTitles}>
           <Text style={styles.barTitle}>Select unit</Text>
           <Text style={styles.barHospital} numberOfLines={1}>
-            {hospitalName ?? ' '}
+            {displayName(hospitalName) || ' '}
           </Text>
         </View>
-        <ProfileButton />
+        <ProfileMenu />
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
@@ -111,20 +112,20 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   bar: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 20, paddingBottom: 12, borderBottomColor: colors.border, borderBottomWidth: StyleSheet.hairlineWidth },
   barTitles: { flex: 1, minWidth: 0 },
-  barTitle: { fontSize: 20, fontWeight: '800', color: colors.text },
+  barTitle: { fontSize: 20, fontWeight: '700', color: colors.text },
   barHospital: { fontSize: 14, color: colors.muted, marginTop: 1 },
   content: { padding: 20, gap: 12 },
   titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  title: { fontSize: 26, fontWeight: '800', color: colors.text },
+  title: { fontSize: 24, fontWeight: '700', color: colors.text },
   count: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 999, backgroundColor: colors.slateBg },
-  countText: { fontSize: 13, fontWeight: '700', color: colors.slate },
+  countText: { fontSize: 12, fontWeight: '700', color: colors.slate },
   subtitle: { fontSize: 16, color: colors.muted, marginBottom: 4 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 12, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
   rowSelected: { borderColor: colors.primary, borderWidth: 2 },
   radio: { width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: colors.faint, alignItems: 'center', justifyContent: 'center' },
   radioSelected: { borderColor: colors.primary, backgroundColor: colors.primary },
   radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.white },
-  callSign: { fontSize: 18, fontWeight: '800', color: colors.text, flexShrink: 0 },
+  callSign: { fontSize: 16, fontWeight: '700', color: colors.text, flexShrink: 0 },
   footer: { paddingHorizontal: 20, paddingTop: 12, gap: 14 },
   link: { alignSelf: 'center' },
   linkText: { fontSize: 14, fontWeight: '600', color: colors.muted, textDecorationLine: 'underline' },

@@ -1,22 +1,23 @@
-import { ToggleLeft } from 'lucide-react-native'
+import { CircleCheck, Play } from 'lucide-react-native'
 import { useCallback, useState } from 'react'
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native'
+import { ActionBar } from '@/components/action-bar'
+import type { PrimaryAction } from '@/components/action-bar'
 import { AvailabilitySheet } from '@/components/availability-sheet'
 import { BackOnlineNotice, ErrorNotice, NoticeBanner, OfflineNotice, RateLimitNotice } from '@/components/notice-banner'
 import { PositionCard } from '@/components/position-card'
 import { StageCard } from '@/components/stage-card'
 import { EmptyState, LoadingState } from '@/components/states'
-import { Button } from '@/components/ui'
 import { UnitCard } from '@/components/unit-card'
 import { colors } from '@/constants'
 import { useFocusedPolling } from '@/hooks/use-focused-polling'
 import type { AssignmentStage } from '@/lib/api'
-import { formatIstClock, formatWindow } from '@/lib/time'
+import { formatWindow } from '@/lib/time'
 import { useFleet } from '@/state/fleet'
 
 export default function AssignmentScreen() {
   const {
-    unit, hospital, demand, error, offline, backOnline, dataAt, rateLimitUntil, fleetLoaded, lastUpdated, positionUpdate, stageTimes, actionError,
+    unit, hospital, demand, error, offline, backOnline, dataAt, rateLimitUntil, fleetLoaded, positionUpdate, stageTimes, actionError,
     refresh, setAvailability, setStage, dismissPositionUpdate, clearActionError,
   } = useFleet()
   const [refreshing, setRefreshing] = useState(false)
@@ -49,6 +50,20 @@ export default function AssignmentScreen() {
   }
 
   const assignment = unit.current_assignment
+  const planEnded = assignment !== null && now > new Date(assignment.valid_to).getTime()
+
+  // The next step of a live plan. In position has none: from there the plan just runs out.
+  let primary: PrimaryAction | null = null
+  if (assignment && !planEnded && assignment.assignment_status !== 'in_position') {
+    const toEnRoute = assignment.assignment_status === 'planned'
+    primary = {
+      label: offline ? 'Reconnect to update' : toEnRoute ? (positionUpdate ? 'Acknowledge & Start moving' : 'Start moving') : "I've arrived",
+      icon: toEnRoute ? <Play size={18} color={colors.white} fill={colors.white} /> : <CircleCheck size={22} color={colors.white} />,
+      onPress: () => onAdvance(toEnRoute ? 'en_route' : 'in_position'),
+      busy: advancing,
+      disabled: offline,
+    }
+  }
 
   async function onAdvance(stage: AssignmentStage) {
     setAdvancing(true)
@@ -58,8 +73,9 @@ export default function AssignmentScreen() {
   }
 
   return (
-    <>
+    <View style={styles.screen}>
       <ScrollView
+        style={styles.scroll}
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}>
         <RateLimitNotice until={rateLimitUntil} />
@@ -78,7 +94,7 @@ export default function AssignmentScreen() {
           />
         )}
 
-        <UnitCard unit={unit} />
+        <UnitCard unit={unit} onPressStatus={() => setSheetOpen(true)} statusDisabled={offline} />
 
         {!assignment ? (
           <EmptyState
@@ -89,7 +105,7 @@ export default function AssignmentScreen() {
                 : 'Waiting for the next position plan from dispatch. Pull down to refresh.'
             }
           />
-        ) : now > new Date(assignment.valid_to).getTime() ? (
+        ) : planEnded ? (
           <EmptyState
             title={`Your ${formatWindow(assignment.valid_from, assignment.valid_to)} plan has ended`}
             message="Waiting for the next position plan from dispatch."
@@ -105,31 +121,21 @@ export default function AssignmentScreen() {
               assignment={assignment}
               stageTimes={stageTimes}
               replannedAt={positionUpdate?.revisedAt}
-              busy={advancing}
-              offline={offline}
-              onAdvance={onAdvance}
             />
           </>
         )}
 
-        <Button
-          variant="outline"
-          label={offline ? 'Reconnect to update' : 'Change availability'}
-          icon={<ToggleLeft size={22} color={colors.text} />}
-          disabled={offline}
-          onPress={() => setSheetOpen(true)}
-        />
-
-        {lastUpdated && <Text style={styles.updated}>Last updated {formatIstClock(lastUpdated)}</Text>}
-        <View style={{ height: 8 }} />
       </ScrollView>
 
+      {primary && <ActionBar primary={primary} />}
+
       <AvailabilitySheet visible={sheetOpen} current={unit.status} onChange={setAvailability} onClose={() => setSheetOpen(false)} />
-    </>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
+  screen: { flex: 1 },
+  scroll: { flex: 1 },
   content: { padding: 20, gap: 16 },
-  updated: { textAlign: 'center', color: colors.muted, fontSize: 15, marginTop: 8 },
 })

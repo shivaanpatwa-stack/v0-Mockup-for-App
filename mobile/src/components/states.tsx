@@ -33,6 +33,6 @@ export function EmptyState({ title, message }: { title: string; message: string 
 const styles = StyleSheet.create({
   center: { alignItems: 'center', gap: 10, paddingVertical: 48 },
   card: { gap: 10 },
-  title: { fontSize: 20, fontWeight: '800', color: colors.text },
-  muted: { fontSize: 15, color: colors.muted, lineHeight: 21 },
+  title: { fontSize: 20, fontWeight: '700', color: colors.text },
+  muted: { fontSize: 14, color: colors.muted, lineHeight: 21 },
 })

@@ -141,10 +141,10 @@ export default function EnterCodeScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   content: { paddingHorizontal: 20, gap: 18 },
-  brand: { fontSize: 22, fontWeight: '800', color: colors.text, letterSpacing: -0.3 },
-  title: { fontSize: 28, fontWeight: '800', color: colors.text, marginTop: 8 },
+  brand: { fontSize: 20, fontWeight: '700', color: colors.text, letterSpacing: -0.3 },
+  title: { fontSize: 24, fontWeight: '700', color: colors.text, marginTop: 8 },
   muted: { fontSize: 16, color: colors.muted, lineHeight: 22 },
-  confirmTitle: { fontSize: 22, fontWeight: '800', color: colors.text },
+  confirmTitle: { fontSize: 20, fontWeight: '700', color: colors.text },
   input: {
     height: 56,
     borderRadius: 10,

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { StyleSheet, View } from 'react-native'
-import MapView, { Marker } from 'react-native-maps'
+import MapView, { Marker, Polyline } from 'react-native-maps'
 import type { LatLng } from 'react-native-maps'
+import { colors } from '@/constants'
 import { HospitalMarkerView, UnitMarkerView } from './map-markers'
 import type { Coordinate, TripMapProps } from './trip-map-types'
 
@@ -15,7 +16,19 @@ const BOTTOM_GAP = 40
 const toLatLng = (c: Coordinate): LatLng => ({ latitude: c.lat, longitude: c.lng })
 
 /** A custom-view marker. Native maps snapshot the view, so it tracks changes briefly and then stops (cheaper). */
-function CustomMarker({ coordinate, version, children }: { coordinate: LatLng; version: string; children: ReactNode }) {
+function CustomMarker({
+  coordinate,
+  version,
+  title,
+  description,
+  children,
+}: {
+  coordinate: LatLng
+  version: string
+  title?: string
+  description?: string
+  children: ReactNode
+}) {
   const [tracking, setTracking] = useState(true)
   useEffect(() => {
     setTracking(true)
@@ -23,7 +36,7 @@ function CustomMarker({ coordinate, version, children }: { coordinate: LatLng; v
     return () => clearTimeout(timer)
   }, [version])
   return (
-    <Marker coordinate={coordinate} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={tracking}>
+    <Marker coordinate={coordinate} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={tracking} title={title} description={description}>
       {children}
     </Marker>
   )
@@ -41,6 +54,7 @@ export function TripMap({ hospital, assigned, bottomInset, recenterToken }: Trip
   const fitKey = `${hospital?.lat},${hospital?.lng}|${assigned?.lat},${assigned?.lng}`
 
   // Fit on first layout, whenever either marker moves (e.g. a new plan), when the card changes height, and on Recenter.
+  // mapPadding (below) already keeps the card's strip out of the map's usable area, so the padding here is just a margin.
   useEffect(() => {
     const map = mapRef.current
     if (!ready || !map || size.height === 0) return
@@ -49,15 +63,21 @@ export function TripMap({ hospital, assigned, bottomInset, recenterToken }: Trip
 
     if (points.length >= 2) {
       map.fitToCoordinates(points.map(toLatLng), {
-        edgePadding: { top: TOP_PADDING, right: SIDE_PADDING, bottom: bottomInset + BOTTOM_GAP, left: SIDE_PADDING },
+        edgePadding: { top: TOP_PADDING, right: SIDE_PADDING, bottom: BOTTOM_GAP, left: SIDE_PADDING },
         animated,
       })
     } else {
-      // A single point can't be "fitted" (it would zoom all the way in), so centre it in the part above the card.
-      const latitudeDelta = SINGLE_POINT_DELTA
-      const longitudeDelta = SINGLE_POINT_DELTA * (size.width / size.height)
-      const shift = (latitudeDelta * ((bottomInset - TOP_PADDING) / size.height)) / 2
-      map.animateToRegion({ latitude: center.lat - shift, longitude: center.lng, latitudeDelta, longitudeDelta }, animated ? 350 : 0)
+      // A single point can't be "fitted" (it would zoom all the way in), so centre it at a fixed zoom.
+      const visibleHeight = Math.max(1, size.height - bottomInset)
+      map.animateToRegion(
+        {
+          latitude: center.lat,
+          longitude: center.lng,
+          latitudeDelta: SINGLE_POINT_DELTA,
+          longitudeDelta: SINGLE_POINT_DELTA * (size.width / visibleHeight),
+        },
+        animated ? 350 : 0,
+      )
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, size.height, size.width, fitKey, bottomInset, recenterToken])
@@ -73,17 +93,31 @@ export function TripMap({ hospital, assigned, bottomInset, recenterToken }: Trip
           latitudeDelta: SINGLE_POINT_DELTA,
           longitudeDelta: SINGLE_POINT_DELTA,
         }}
+        mapPadding={{ top: 0, right: 0, bottom: bottomInset, left: 0 }}
         onMapReady={() => setReady(true)}
         toolbarEnabled={false}
         rotateEnabled={false}
         pitchEnabled={false}>
+        {/* A straight line, like the "km from base" figure; not a driving route. */}
+        {hospital && assigned && (
+          <Polyline
+            coordinates={[toLatLng(hospital), toLatLng(assigned)]}
+            strokeColor={colors.primary}
+            strokeWidth={2}
+            lineDashPattern={[8, 6]}
+          />
+        )}
         {hospital && (
-          <CustomMarker coordinate={toLatLng(hospital)} version="hospital">
+          <CustomMarker coordinate={toLatLng(hospital)} version="hospital" title="Base" description={hospital.name}>
             <HospitalMarkerView />
           </CustomMarker>
         )}
         {assigned && (
-          <CustomMarker coordinate={toLatLng(assigned)} version={`${assigned.label}|${assigned.type}`}>
+          <CustomMarker
+            coordinate={toLatLng(assigned)}
+            version={`${assigned.label}|${assigned.type}`}
+            title={assigned.name ?? 'Your position'}
+            description="Your recommended position">
             <UnitMarkerView label={assigned.label} type={assigned.type} />
           </CustomMarker>
         )}

@@ -7,12 +7,14 @@ export const colors = {
   border: '#DDD5C6',
   text: '#0F172A',
   muted: '#5B6573',
-  faint: '#8A93A0',
+  // Secondary and faint text are 4.5:1 or better on the card; `outline` is 3:1+ for borders that carry meaning.
+  faint: '#64707F',
+  outline: '#707B89',
   primary: '#0B4A6F',
   stepIdle: '#D9CFBE',
   green: '#15803D',
   greenBg: '#DCFCE7',
-  red: '#DC2626',
+  red: '#B91C1C', // 5.3:1 on its tint (the previous #DC2626 was 3.95:1)
   redBg: '#FEE2E2',
   amber: '#B45309',
   amberBg: '#FEF3C7',

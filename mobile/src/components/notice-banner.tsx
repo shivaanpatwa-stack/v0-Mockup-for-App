@@ -117,5 +117,5 @@ const styles = StyleSheet.create({
   body: { flex: 1, gap: 10 },
   message: { fontSize: 14, fontWeight: '600', lineHeight: 20 },
   action: { alignSelf: 'flex-start', paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8, borderWidth: 1, backgroundColor: 'rgba(255,255,255,0.6)' },
-  actionText: { fontSize: 14, fontWeight: '800' },
+  actionText: { fontSize: 14, fontWeight: '700' },
 })
