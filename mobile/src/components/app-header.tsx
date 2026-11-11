@@ -41,7 +41,7 @@ export function AppHeader() {
         accessibilityRole="button"
         style={({ pressed }) => [styles.switch, pressed && { opacity: 0.8 }]}
         onPress={clearUnit}>
-        <ArrowLeftRight size={18} color={colors.primary} />
+        <ArrowLeftRight size={18} color={colors.accent} />
         <Text style={styles.switchText}>Switch unit</Text>
       </Pressable>
       <ProfileButton />
