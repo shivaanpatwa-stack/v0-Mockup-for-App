@@ -6,17 +6,24 @@ import { CODE_COOKIE, KEY_COOKIE } from './session'
 export const BACKEND_URL = (process.env.BACKEND_URL ?? 'http://localhost:8000').replace(/\/$/, '')
 const PROXY_SHARED_SECRET = process.env.PROXY_SHARED_SECRET ?? ''
 
-const SESSION_MAX_AGE_S = 7 * 24 * 60 * 60
+// SEC-10: 12 hours (was 7 days); the app also signs out after 30 min idle (lib/app-state.tsx).
+const SESSION_MAX_AGE_S = 12 * 60 * 60
 
 /**
- * The visitor's IP as reported by the hosting platform: x-real-ip, else the first x-forwarded-for
- * entry, else "local". The backend only trusts it when X-Proxy-Secret matches its PROXY_SHARED_SECRET.
+ * SEC-03: the visitor's IP from headers the platform sets, never the client-controlled left end of
+ * x-forwarded-for: cf-connecting-ip, then Vercel's x-vercel-forwarded-for / x-real-ip, then the
+ * rightmost x-forwarded-for hop (added by the last proxy). The backend only trusts it when
+ * X-Proxy-Secret matches its PROXY_SHARED_SECRET.
  */
 export function clientIp(req: NextRequest): string {
+  const cf = req.headers.get('cf-connecting-ip')?.trim()
+  if (cf) return cf
+  const vercel = req.headers.get('x-vercel-forwarded-for')?.split(',').pop()?.trim()
+  if (vercel) return vercel
   const real = req.headers.get('x-real-ip')?.trim()
   if (real) return real
-  const first = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
-  return first || 'local'
+  const hops = (req.headers.get('x-forwarded-for') ?? '').split(',').map((h) => h.trim()).filter(Boolean)
+  return hops.length ? hops[hops.length - 1] : 'local'
 }
 
 /** Headers every backend call carries; credentials are added by the caller. */

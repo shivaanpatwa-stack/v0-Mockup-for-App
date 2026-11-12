@@ -20,8 +20,10 @@ url = make_url(DATABASE_URL)
 if url.drivername in ("postgres", "postgresql"):
     url = url.set(drivername="postgresql+psycopg2")
 
-# pool_pre_ping replaces connections the Supabase pooler has closed while idle.
-engine = create_engine(url, pool_pre_ping=True)
+# pool_pre_ping replaces connections the Supabase pooler has closed while idle. SEC-09: bounded pool,
+# and TLS required for Postgres. Use the pooler's transaction-mode port (6543) in DATABASE_URL.
+_connect_args = {"sslmode": "require"} if url.drivername.startswith("postgresql") and "sslmode" not in url.query else {}
+engine = create_engine(url, pool_pre_ping=True, pool_size=10, max_overflow=20, connect_args=_connect_args)
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 

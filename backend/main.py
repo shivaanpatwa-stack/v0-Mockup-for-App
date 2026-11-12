@@ -229,33 +229,54 @@ INVALID_CODE = "Invalid hospital code"
 INVALID_CREDENTIALS = "Invalid credentials"
 
 
+# SEC-04: counted in memory (sliding window per IP and kind), so a credential-stuffing flood never
+# touches the database. Per process: fine for the single Render instance; use Redis if scaled out.
+_limit_hits: dict[tuple[str, str], deque] = defaultdict(deque)
+_limit_lock = threading.Lock()
+
+
 def _maybe_purge(db: Session) -> None:
-    """About 1 request in 100 deletes rows nobody counts any more."""
-    if random.random() < PURGE_PROBABILITY:
-        db.execute(delete(models.AuthFailure).where(models.AuthFailure.created_at < func.now() - PURGE_OLDER_THAN))
-        db.commit()
+    """Drops IPs whose hits have all expired, about 1 call in 100 (keeps memory bounded)."""
+    if random.random() >= PURGE_PROBABILITY:
+        return
+    horizon = clock.monotonic() - max(AUTH_WINDOW, REGISTER_WINDOW).total_seconds()
+    with _limit_lock:
+        for key in [k for k, hits in _limit_hits.items() if not hits or hits[-1] < horizon]:
+            del _limit_hits[key]
 
 
 def _enforce_limit(db: Session, ip: str, kind: str, limit: int, window: timedelta) -> None:
-    """429 with Retry-After if this IP already has `limit` rows of `kind` inside `window`."""
-    F = models.AuthFailure
-    recent = db.scalars(
-        select(F.created_at)
-        .where(F.client_ip == ip, F.kind == kind, F.created_at > func.now() - window)
-        .order_by(F.created_at.desc())
-        .limit(limit)
-    ).all()
-    if len(recent) < limit:
-        return
-    # Unblocked once the oldest of the `limit` most recent rows leaves the window.
-    now = db.scalar(select(func.now()))
-    retry_after = max(1, int((recent[-1] + window - now).total_seconds()) + 1)
+    """429 with Retry-After if this IP already has `limit` hits of `kind` inside `window`."""
+    now = clock.monotonic()
+    span = window.total_seconds()
+    with _limit_lock:
+        hits = _limit_hits[(ip, kind)]
+        while hits and hits[0] <= now - span:
+            hits.popleft()
+        if len(hits) < limit:
+            return
+        retry_after = max(1, int(hits[0] + span - now) + 1)
     raise HTTPException(status_code=429, detail=TOO_MANY_ATTEMPTS, headers={"Retry-After": str(retry_after)})
 
 
 def _record(db: Session, ip: str, kind: str) -> None:
-    db.add(models.AuthFailure(client_ip=ip, kind=kind))
-    db.commit()
+    with _limit_lock:
+        _limit_hits[(ip, kind)].append(clock.monotonic())
+
+
+audit_logger = logging.getLogger("audit")
+if not audit_logger.handlers:  # always printed to the server log (Render keeps it)
+    audit_logger.addHandler(logging.StreamHandler())
+    audit_logger.setLevel(logging.INFO)
+    audit_logger.propagate = False
+
+
+def _audit(hospital, action: str, ip: str, **details) -> None:
+    """SEC-12: one structured line per state change: who (hospital), what, from where, when."""
+    audit_logger.info(
+        "audit action=%s hospital_id=%s ip=%s at=%s details=%s",
+        action, getattr(hospital, "hospital_id", None), ip, datetime.now(timezone.utc).isoformat(), json.dumps(details, default=str),
+    )
 
 
 def _guarded(db: Session, ip: str) -> None:
@@ -625,8 +646,13 @@ def _save_run_history(db: Session, result: dict, fleet, window_start: datetime, 
     return run.run_id
 
 
+# SEC-01: Greater Mumbai operating territory.
+MUMBAI_LAT_MIN, MUMBAI_LAT_MAX = 18.85, 19.30
+MUMBAI_LNG_MIN, MUMBAI_LNG_MAX = 72.75, 73.05
+
+
 class Ambulance(BaseModel):
-    id: str = Field(min_length=1)
+    id: str = Field(min_length=1, max_length=20, pattern=r"^[A-Za-z0-9 _/-]+$")
     type: str
 
     @field_validator("id")
@@ -647,7 +673,7 @@ class Ambulance(BaseModel):
 
 class AmbulanceStatusUpdate(BaseModel):
     status: models.AmbulanceStatus
-    note: Optional[str] = None
+    note: Optional[str] = Field(default=None, max_length=255)
 
 
 class AssignmentStatusUpdate(BaseModel):
@@ -659,21 +685,22 @@ class SimulationRequest(BaseModel):
     hour: int = Field(ge=0, le=23)
     num_ambulances: Optional[int] = Field(default=None, ge=1, le=20)
     operating_radius_km: Optional[float] = Field(default=None, ge=1, le=50)
-    min_spacing_km: Optional[float] = Field(default=None, ge=0)
+    min_spacing_km: Optional[float] = Field(default=None, ge=0, le=10)
     max_response_minutes: Optional[float] = Field(default=None, ge=5, le=60)
 
 
 class HospitalUpdate(BaseModel):
-    name: Optional[str] = Field(default=None, min_length=1)
-    operating_radius_km: Optional[float] = Field(default=None, gt=0, le=100)
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    operating_radius_km: Optional[float] = Field(default=None, gt=0, le=50)
 
 
 class HospitalRegistration(BaseModel):
-    hospital_name: str
-    lat: float = Field(ge=-90, le=90)
-    lng: float = Field(ge=-180, le=180)
-    operating_radius_km: float = Field(gt=0)
-    ambulances: List[Ambulance] = Field(min_length=1)
+    hospital_name: str = Field(min_length=2, max_length=100)
+    # SEC-01: only inside Greater Mumbai (422 otherwise).
+    lat: float = Field(ge=MUMBAI_LAT_MIN, le=MUMBAI_LAT_MAX)
+    lng: float = Field(ge=MUMBAI_LNG_MIN, le=MUMBAI_LNG_MAX)
+    operating_radius_km: float = Field(gt=0, le=50)
+    ambulances: List[Ambulance] = Field(min_length=1, max_length=50)
 
 
 @app.get("/health")
@@ -837,7 +864,9 @@ def update_ambulance_status(
     update_: AmbulanceStatusUpdate,
     hospital=Depends(get_hospital),
     db: Session = Depends(get_db),
+    audit_ip: str = Depends(get_client_ip),
 ):
+    _audit(hospital, "ambulance_status", audit_ip, call_sign=call_sign, status=update_.status)
     try:
         ambulance = _require_hospital_ambulance(db, hospital, call_sign)
         # Same status again (e.g. a double tap): no change and no duplicate event.
@@ -868,7 +897,9 @@ def update_assignment_status(
     update_: AssignmentStatusUpdate,
     hospital=Depends(get_hospital),
     db: Session = Depends(get_db),
+    audit_ip: str = Depends(get_client_ip),
 ):
+    _audit(hospital, "assignment_status", audit_ip, call_sign=call_sign, status=update_.status)
     try:
         ambulance = _require_hospital_ambulance(db, hospital, call_sign)
         assignment = _current_assignments(db, hospital, [ambulance.ambulance_id]).get(ambulance.ambulance_id)
@@ -1106,7 +1137,9 @@ def optimize(
     ),
     hospital=Depends(require_admin),
     db: Session = Depends(get_db),
+    audit_ip: str = Depends(get_client_ip),
 ):
+    _audit(hospital, "recalculate_staging", audit_ip, hour=hour, min_spacing_km=min_spacing_km)
     if "error" in data:
         raise HTTPException(status_code=503, detail=data["error"])
 
@@ -1405,7 +1438,8 @@ def simulate_scenario(request: ScenarioRequest, hospital=Depends(require_admin),
 
 
 @app.post("/scenarios/apply")
-def apply_scenario(request: ScenarioRequest, hospital=Depends(require_admin), db: Session = Depends(get_db)):
+def apply_scenario(request: ScenarioRequest, hospital=Depends(require_admin), db: Session = Depends(get_db), audit_ip: str = Depends(get_client_ip)):
+    _audit(hospital, "apply_scenario", audit_ip, hour=request.hour)
     """Use a scenario as the staging plan: same calculation as /scenarios/simulate, saved as a run."""
     fleet, in_service = _scenario_fleet(db, hospital)
     n = request.num_ambulances or len(in_service)
@@ -1575,7 +1609,8 @@ def run_history(
 
 
 @app.post("/runs/{run_id}/restore")
-def restore_run(run_id: int, hospital=Depends(require_admin), db: Session = Depends(get_db)):
+def restore_run(run_id: int, hospital=Depends(require_admin), db: Session = Depends(get_db), audit_ip: str = Depends(get_client_ip)):
+    _audit(hospital, "restore_run", audit_ip, run_id=run_id)
     """Make an earlier run's positions the current plan again, saved as a new run (trigger "restore")."""
     if "error" in data:
         raise HTTPException(status_code=503, detail=data["error"])

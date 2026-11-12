@@ -11,6 +11,7 @@ import {
   getRunHistory,
   optimize,
   saveHospitalName,
+  signOut,
   simulateScenario,
   type FleetAmbulance,
   type Hospital,
@@ -190,6 +191,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     refreshHospital()
   }, [refreshHospital])
+
+  // SEC-10: sign out after 30 minutes without input (shared control-room screens).
+  useEffect(() => {
+    const IDLE_MS = 30 * 60 * 1000
+    let timer = setTimeout(expire, IDLE_MS)
+    function expire() {
+      signOut().finally(() => window.location.assign('/start'))
+    }
+    const reset = () => {
+      clearTimeout(timer)
+      timer = setTimeout(expire, IDLE_MS)
+    }
+    const events = ['pointerdown', 'keydown', 'wheel', 'touchstart'] as const
+    events.forEach((e) => window.addEventListener(e, reset, { passive: true }))
+    return () => {
+      clearTimeout(timer)
+      events.forEach((e) => window.removeEventListener(e, reset))
+    }
+  }, [])
 
   useEffect(() => {
     if (!hospital) return
