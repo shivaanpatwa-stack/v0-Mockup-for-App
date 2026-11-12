@@ -78,12 +78,34 @@ function FocusWard({ ward }: { ward?: string | null }) {
   return null
 }
 
-function FitUnits({ points }: { points: { lat: number; lng: number }[] }) {
+function AutoResize() {
+  const map = useMap()
+  useEffect(() => {
+    const container = map.getContainer()
+    if (!container || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => {
+      map.invalidateSize()
+    })
+    ro.observe(container)
+    return () => ro.disconnect()
+  }, [map])
+  return null
+}
+
+function FitUnits({ points, hospitalCenter }: { points: { lat: number; lng: number }[]; hospitalCenter?: [number, number] }) {
   const map = useMap()
   const key = points.map((p) => `${p.lat.toFixed(4)},${p.lng.toFixed(4)}`).join('|')
   useEffect(() => {
-    if (points.length === 0) return
-    map.fitBounds(latLngBounds(points.map((p) => [p.lat, p.lng] as [number, number])).pad(0.3), { maxZoom: 13, animate: false })
+    if (points.length === 0) {
+      map.setView(hospitalCenter ?? MUMBAI_CENTER, 11)
+      return
+    }
+    if (points.length === 1) {
+      map.setView([points[0].lat, points[0].lng], 12)
+      return
+    }
+    const bounds = latLngBounds(points.map((p) => [p.lat, p.lng] as [number, number])).pad(0.2)
+    map.fitBounds(bounds, { maxZoom: 12, animate: false })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, map])
   return null
@@ -216,9 +238,10 @@ export default function LiveMap({
             </Tooltip>
           </Marker>
         ))}
+      <AutoResize />
       <ZoomControl position={mini ? 'topright' : 'bottomright'} />
       {!mini && <FocusWard ward={focusWard} />}
-      {mini && <FitUnits points={fitPoints} />}
+      {mini && <FitUnits points={fitPoints} hospitalCenter={hospital ? [hospital.lat, hospital.lng] : undefined} />}
     </MapContainer>
   )
 }

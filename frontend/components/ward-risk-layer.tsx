@@ -232,6 +232,11 @@ export default function WardRiskLayer({
       { sticky: true, className: 'map-tooltip' },
     )
     layer.on({
+      click: (e: LeafletMouseEvent) => {
+        // Prevent default browser SVG bounding box focus outline
+        const el = (e.target as any)._path as SVGElement | undefined
+        el?.blur()
+      },
       mouseover: (e: LeafletMouseEvent) => {
         const code = wardCode(feature)
         hoveredWardRef.current = code ?? null

@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import {
   ApiError,
   applyScenario,
+  cancelLivePlan,
   getFleet,
   getHospital,
   getRun,
@@ -63,6 +64,7 @@ type AppState = {
   previewScenario: (request: ScenarioRequest, result: ScenarioResult) => void
   applyPreview: () => void
   discardPreview: () => void
+  cancelPlan: () => Promise<void>
   pendingApply: boolean
   // Toasts
   toasts: Toast[]
@@ -204,13 +206,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [hospital, refreshFleet, refreshHistory])
 
-  // After a reload, the latest saved plan is the current plan (never an empty state when one exists).
+  // After a reload, the latest saved plan is the current plan (never an empty state when one exists),
+  // provided the fleet has at least one active assignment.
   useEffect(() => {
-    if (restoredLatest.current || plan || !history) return
+    if (restoredLatest.current || plan || !history || !fleet) return
     restoredLatest.current = true
-    const latest = history.find((r) => r.status === 'succeeded')
-    if (latest) setPlanFromRun(latest.run_id).catch((err) => console.warn('Loading the latest plan failed', err))
-  }, [history, plan, setPlanFromRun])
+    const hasActiveAssignments = fleet.some((a) => a.current_assignment !== null)
+    if (hasActiveAssignments) {
+      const latest = history.find((r) => r.status === 'succeeded')
+      if (latest) setPlanFromRun(latest.run_id).catch((err) => console.warn('Loading the latest plan failed', err))
+    }
+  }, [history, fleet, plan, setPlanFromRun])
 
   const inService = useMemo(() => (fleet ?? []).filter((a) => a.status !== 'unavailable'), [fleet])
 
@@ -256,50 +262,82 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setRecalcStatus('idle')
   }, [])
 
-  const applyPreview = useCallback(() => {
+  const cancelPlan = useCallback(async () => {
+    if (applyTimer.current) clearTimeout(applyTimer.current)
+    applyTimer.current = null
+    try {
+      await cancelLivePlan()
+      setPlan(null)
+      setPreview(null)
+      setRecalcStatus('idle')
+      pushToast({ text: 'Live staging plan cancelled. Crews instructed to stand by.' })
+      await refreshFleet()
+      await refreshHistory()
+    } catch (err) {
+      pushToast({ text: `Failed to cancel plan: ${(err as Error).message}`, tone: 'critical' })
+    }
+  }, [pushToast, refreshFleet, refreshHistory])
+
+  const applyPreview = useCallback(async () => {
     if (!preview || pendingApply) return
+    const targetPreview = preview
     const previous = plan
-    const shown = planFromResult({ ...(preview.result as OptimizeResult), run_id: null }, preview.hour)
+    const shown = planFromResult({ ...(targetPreview.result as OptimizeResult), run_id: null }, targetPreview.hour)
+
+    // 1. Instantly update plan, hour, preview, and open the moves panel
     setPlan(shown)
-    setHour(preview.hour)
+    setHour(targetPreview.hour)
     setPreview(null)
     setRecalcStatus('idle')
     setPendingApply(true)
     setScenario(null)
     setWhatIfOpen(false)
-    const until = Date.now() + UNDO_MS
-    let toast = 0
-    const undo = () => {
-      if (applyTimer.current) clearTimeout(applyTimer.current)
-      applyTimer.current = null
+    setMovesOpen(true)
+
+    // 2. Immediate feedback toast with zero delay
+    pushToast({ text: 'Plan applied — units staged and ready to dispatch.' })
+
+    // 3. Optimistically update fleet immediately so Dispatch buttons appear at once
+    setFleet((curr) =>
+      (curr ?? []).map((u) => {
+        const a = shown.assignments.find((p) => p.ambulance_id === u.call_sign)
+        if (!a) return u
+        return {
+          ...u,
+          current_assignment: {
+            candidate_id: a.candidate_id,
+            name: a.name,
+            ward_code: a.ward_code,
+            lat: a.lat,
+            lng: a.lng,
+            assignment_status: 'planned' as const,
+            valid_from: new Date().toISOString(),
+            valid_to: new Date(Date.now() + 3600_000).toISOString(),
+          },
+        }
+      })
+    )
+
+    // 4. Persist to backend asynchronously
+    const { source, request } = targetPreview
+    try {
+      const saved =
+        source === 'what_if'
+          ? await applyScenario(request)
+          : await optimize(request.hour, request.min_spacing_km ?? DEFAULT_SPACING_KM, request.max_response_minutes ?? DEFAULT_TARGET_MIN)
+      setPlan(planFromResult(saved, request.hour))
+      refreshHistory()
+      refreshFleet()
+    } catch (err) {
       setPlan(previous)
+      setRecalcError(errorText(err))
+      setRecalcStatus('error')
+      pushToast({ text: `Failed to save plan: ${errorText(err)}`, tone: 'critical' })
+      refreshFleet()
+    } finally {
       setPendingApply(false)
-      dismissToast(toast)
-      pushToast({ text: 'Plan not applied. The previous plan is back.' })
     }
-    toast = pushToast({ text: 'Plan applied', undo, until })
-    const { source, request } = preview
-    applyTimer.current = setTimeout(async () => {
-      applyTimer.current = null
-      dismissToast(toast)
-      try {
-        const saved =
-          source === 'what_if'
-            ? await applyScenario(request)
-            : await optimize(request.hour, request.min_spacing_km ?? DEFAULT_SPACING_KM, request.max_response_minutes ?? DEFAULT_TARGET_MIN)
-        setPlan(planFromResult(saved, request.hour))
-        pushToast({ text: saved.run_id ? `Saved to run history` : 'Applied, but saving to run history failed' })
-        refreshHistory()
-        refreshFleet()
-      } catch (err) {
-        setPlan(previous)
-        setRecalcError(errorText(err))
-        setRecalcStatus('error')
-      } finally {
-        setPendingApply(false)
-      }
-    }, UNDO_MS)
-  }, [preview, pendingApply, plan, pushToast, dismissToast, refreshHistory, refreshFleet])
+  }, [preview, pendingApply, plan, pushToast, refreshHistory, refreshFleet, setMovesOpen])
 
   useEffect(() => () => {
     if (applyTimer.current) clearTimeout(applyTimer.current)
@@ -308,7 +346,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const value: AppState = {
     hospital, fleet, history, loadError, plan, hour, setHour, spacingKm, setSpacingKm, targetMin, setTargetMin,
     inService, stale, recalcStatus, recalcError, recalcStartedAt, preview, recalculate, previewScenario,
-    applyPreview, discardPreview, pendingApply, toasts, pushToast, dismissToast, layers, setLayers,
+    applyPreview, discardPreview, cancelPlan, pendingApply, toasts, pushToast, dismissToast, layers, setLayers,
     showUncovered, setShowUncovered, whatIfOpen, setWhatIfOpen, scenario, setScenario, comparing, setComparing,
     movesOpen, setMovesOpen, focusWard, setFocusWard, pendingScenarioRequest, setPendingScenarioRequest,
     refreshHistory, refreshHospital, refreshFleet, setPlanFromRun,

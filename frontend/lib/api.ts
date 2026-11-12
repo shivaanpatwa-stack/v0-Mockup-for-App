@@ -495,3 +495,13 @@ export function restoreRun(runId: number): Promise<{ run_id: number; restored_fr
 export function setAssignmentStatus(callSign: string, status: 'planned' | 'en_route' | 'in_position') {
   return sendJson('PATCH', `/ambulances/${encodeURIComponent(callSign)}/assignment-status`, { status }, 'Updating the move failed')
 }
+
+/** Dispatches all planned units in one call: marks them 'en_route' and shares locations with mobile crews. */
+export function dispatchAllAmbulances(): Promise<{ dispatched_count: number }> {
+  return sendJson('POST', '/fleet/dispatch-all', undefined, 'Dispatching all units failed')
+}
+
+/** Cancels all active staging assignments for the fleet and instructs crews to stand by. */
+export function cancelLivePlan(): Promise<{ cancelled_count: number }> {
+  return sendJson('POST', '/fleet/cancel-plan', undefined, 'Cancelling the staging plan failed')
+}

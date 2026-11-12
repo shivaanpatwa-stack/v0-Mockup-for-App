@@ -204,6 +204,20 @@ svg {
 }
 .leaflet-pane path {
   transition: none !important;
+  outline: none !important;
+}
+.leaflet-container path,
+.leaflet-container path:focus,
+.leaflet-container path:focus-visible,
+.leaflet-interactive,
+.leaflet-interactive:focus,
+.leaflet-interactive:focus-visible,
+.leaflet-pane svg path,
+.leaflet-pane svg path:focus,
+.leaflet-pane svg path:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* ---------- Controls ---------- */

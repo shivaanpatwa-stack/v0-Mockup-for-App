@@ -14,11 +14,12 @@ import {
   Pause,
   Play,
   RefreshCw,
+  Send,
   SlidersHorizontal,
   XCircle,
 } from 'lucide-react'
 import { movesFor, unitsMoved, useApp, type Move } from '@/lib/app-state'
-import { setAssignmentStatus, type Kpis, type OptimizeResult } from '@/lib/api'
+import { dispatchAllAmbulances, setAssignmentStatus, type Kpis, type OptimizeResult } from '@/lib/api'
 import { DATA_LABEL } from '@/lib/config'
 import { HOURLY_DEMAND } from '@/lib/demand-profile'
 import { ago, formatClock, hourLabel, num, plural } from '@/lib/format'
@@ -144,7 +145,7 @@ function diffSummary(next: OptimizeResult, current: OptimizeResult | null) {
 export function RecalcControl() {
   const {
     plan, hospital, recalcStatus, recalcError, recalcStartedAt, preview, recalculate, applyPreview, discardPreview,
-    pendingApply, stale, whatIfOpen, setWhatIfOpen, setMovesOpen, inService,
+    cancelPlan, pendingApply, stale, whatIfOpen, setWhatIfOpen, setMovesOpen, inService,
   } = useApp()
   const running = recalcStatus === 'running'
   const noUnits = hospital !== undefined && inService.length === 0
@@ -166,6 +167,21 @@ export function RecalcControl() {
         <button type="button" className="btn" aria-pressed={whatIfOpen} onClick={() => setWhatIfOpen(!whatIfOpen)} aria-keyshortcuts="W">
           <SlidersHorizontal aria-hidden="true" /> What if… <kbd aria-hidden="true">W</kbd>
         </button>
+        {plan && !running && recalcStatus === 'idle' && (
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ color: '#ef4444' }}
+            onClick={() => {
+              if (window.confirm('Cancel active staging plan? All mobile crews will be instructed to stand by.')) {
+                cancelPlan()
+              }
+            }}
+            title="Cancel active staging plan and instruct crews to stand by"
+          >
+            <XCircle aria-hidden="true" /> Cancel plan
+          </button>
+        )}
       </div>
 
       {recalcStatus === 'error' ? (
@@ -196,7 +212,7 @@ export function RecalcControl() {
             ? 'Applying the new plan…'
             : plan
               ? `Last calculated ${formatClock(plan.calculatedAt)} · ${ago(plan.calculatedAt)}`
-              : 'No plan yet. Recalculate to place your units.'}
+              : 'No active plan. Recalculate staging to place your units.'}
         </div>
       )}
 
@@ -222,7 +238,17 @@ export function RecalcControl() {
             <button type="button" className="btn btn-primary" onClick={applyPreview}>
               <Check aria-hidden="true" /> Apply plan
             </button>
-            <button type="button" className="btn" onClick={() => setMovesOpen(true)}>Review moves</button>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                setMovesOpen(true)
+                const el = document.getElementById('moves-title')
+                el?.scrollIntoView({ behavior: 'smooth' })
+              }}
+            >
+              Review moves
+            </button>
             <button type="button" className="btn btn-ghost" onClick={discardPreview}>Discard</button>
           </div>
         </section>
@@ -231,43 +257,35 @@ export function RecalcControl() {
   )
 }
 
-const STATUS_TEXT: Record<string, string> = { planned: 'Not dispatched', en_route: 'On the way', in_position: 'In position' }
+const STATUS_TEXT: Record<string, string> = { planned: 'Staged (not dispatched)', en_route: 'Dispatched · On the way', in_position: 'In position' }
 
 function MoveRow({ m, hour, preview, onHover, hot }: { m: Move; hour: number; preview: boolean; onHover: (id: string | null) => void; hot: boolean }) {
-  const { pushToast, refreshFleet, dismissToast } = useApp()
+  const { pushToast, refreshFleet } = useApp()
   const [busy, setBusy] = useState(false)
   const scores = getBundledScoresForHour(hour)
   const score = m.toWard ? scores[m.toWard] : undefined
-  const dispatch = () => {
+  const dispatch = async () => {
     setBusy(true)
-    let id = 0
-    const timer = setTimeout(async () => {
-      dismissToast(id)
-      try {
-        await setAssignmentStatus(m.callSign, 'en_route')
-        pushToast({ text: `${m.callSign} marked as on the way` })
-        refreshFleet()
-      } catch (err) {
-        pushToast({ text: `Couldn't update ${m.callSign}: ${(err as Error).message}`, tone: 'critical' })
-      } finally {
-        setBusy(false)
-      }
-    }, 10_000)
-    id = pushToast({
-      text: `Dispatching ${m.callSign} to ${m.toLabel}`,
-      until: Date.now() + 10_000,
-      undo: () => {
-        clearTimeout(timer)
-        dismissToast(id)
-        setBusy(false)
-      },
-    })
+    try {
+      await setAssignmentStatus(m.callSign, 'en_route')
+      pushToast({ text: `${m.callSign} dispatched to ${m.toLabel} — staging location sent to crew` })
+      refreshFleet()
+    } catch (err) {
+      pushToast({ text: `Couldn't dispatch ${m.callSign}: ${(err as Error).message}`, tone: 'critical' })
+    } finally {
+      setBusy(false)
+    }
   }
   return (
     <li className={`move${hot ? ' is-hover' : ''}`} onMouseEnter={() => onHover(m.callSign)} onMouseLeave={() => onHover(null)} onFocus={() => onHover(m.callSign)}>
       <div className="move-top">
         <span className="move-id">{m.callSign} <span className="muted">{m.type}</span></span>
-        {!preview && m.status && <span className="status">{m.status === 'in_position' ? <Check aria-hidden="true" /> : <span className="dot" aria-hidden="true" />}{STATUS_TEXT[m.status] ?? m.status}</span>}
+        {!preview && (
+          <span className="status">
+            {(m.status ?? 'planned') === 'in_position' ? <Check aria-hidden="true" /> : <span className="dot" aria-hidden="true" />}
+            {STATUS_TEXT[m.status ?? 'planned'] ?? m.status}
+          </span>
+        )}
       </div>
       <div className="move-path">
         {m.fromLabel} <ArrowRight size={12} aria-hidden="true" style={{ verticalAlign: '-2px' }} /> <b>{m.toLabel}</b>
@@ -280,9 +298,11 @@ function MoveRow({ m, hour, preview, onHover, hot }: { m: Move; hour: number; pr
           {score !== undefined ? `: ${DEMAND_LABEL[demandLevel(score)].toLowerCase()} predicted demand at ${hourLabel(hour)}` : ''}
         </div>
       )}
-      {!preview && m.status === 'planned' && (
+      {!preview && (m.status === 'planned' || m.status === null) && (
         <div className="move-actions">
-          <button type="button" className="btn btn-sm" disabled={busy} onClick={dispatch}>Dispatch</button>
+          <button type="button" className="btn btn-sm btn-primary" style={{ gap: 4 }} disabled={busy} onClick={dispatch}>
+            <Send size={12} aria-hidden="true" /> Dispatch
+          </button>
         </div>
       )}
     </li>
@@ -290,7 +310,7 @@ function MoveRow({ m, hour, preview, onHover, hot }: { m: Move; hour: number; pr
 }
 
 export function MovesPanel({ hot, onHover }: { hot: string | null; onHover: (id: string | null) => void }) {
-  const { plan, preview, fleet, hospital, movesOpen, setMovesOpen } = useApp()
+  const { plan, preview, fleet, hospital, movesOpen, setMovesOpen, pushToast, refreshFleet, cancelPlan } = useApp()
   const showingPreview = Boolean(preview)
   const source = (preview?.result as OptimizeResult | undefined) ?? plan
   const hour = preview?.hour ?? plan?.hour ?? 0
@@ -299,6 +319,25 @@ export function MovesPanel({ hot, onHover }: { hot: string | null; onHover: (id:
         (m) => !showingPreview || !plan || m.km == null || m.km > 0.05,
       )
     : []
+  const plannedMoves = !showingPreview ? moves.filter((m) => m.status === 'planned' || m.status === null) : []
+  const [dispatchingAll, setDispatchingAll] = useState(false)
+
+  const dispatchAll = async () => {
+    if (plannedMoves.length === 0) return
+    setDispatchingAll(true)
+    try {
+      await dispatchAllAmbulances().catch(() =>
+        Promise.all(plannedMoves.map((m) => setAssignmentStatus(m.callSign, 'en_route')))
+      )
+      pushToast({ text: `All ${plannedMoves.length} units dispatched — locations shared with mobile crews` })
+      refreshFleet()
+    } catch (err) {
+      pushToast({ text: `Couldn't dispatch all units: ${(err as Error).message}`, tone: 'critical' })
+    } finally {
+      setDispatchingAll(false)
+    }
+  }
+
   if (!movesOpen) {
     return (
       <aside className="moves is-collapsed" aria-label="Moves">
@@ -318,6 +357,34 @@ export function MovesPanel({ hot, onHover }: { hot: string | null; onHover: (id:
           <ChevronRight aria-hidden="true" />
         </button>
       </div>
+      {!showingPreview && plan && (
+        <div style={{ padding: '8px 16px', borderBottom: '1px solid var(--hairline)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {plannedMoves.length > 0 && (
+            <button
+              type="button"
+              className="btn btn-sm btn-primary"
+              style={{ width: '100%', justifyContent: 'center', gap: 6 }}
+              disabled={dispatchingAll}
+              onClick={dispatchAll}
+            >
+              {dispatchingAll ? <Loader2 className="spin" size={13} aria-hidden="true" /> : <Send size={13} aria-hidden="true" />}
+              Dispatch all ({plannedMoves.length} {plannedMoves.length === 1 ? 'unit' : 'units'})
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost"
+            style={{ width: '100%', justifyContent: 'center', gap: 6, color: '#ef4444', fontSize: 12 }}
+            onClick={() => {
+              if (window.confirm('Cancel active staging plan? All mobile crews will be instructed to stand by.')) {
+                cancelPlan()
+              }
+            }}
+          >
+            <XCircle size={13} aria-hidden="true" /> Cancel live plan
+          </button>
+        </div>
+      )}
       {fleet && fleet.length === 0 ? (
         <div className="empty">
           <strong>No units stationed here</strong>

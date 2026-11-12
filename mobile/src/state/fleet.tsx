@@ -149,7 +149,7 @@ export function FleetProvider({ children }: { children: ReactNode }) {
   const cacheLastWrite = useRef(0)
   const fleetRef = useRef<FleetUnit[]>([])
   // The plan seen by the previous poll; null until the first poll for this unit has landed.
-  const lastAssignment = useRef<{ unitId: string; candidateId: string | null; validFrom: string | null } | null>(null)
+  const lastAssignment = useRef<{ unitId: string; candidateId: string | null; validFrom: string | null; dispatched?: boolean } | null>(null)
   // IST hour -> ward_code -> risk score. Scores for an hour don't change, so each hour is fetched once.
   const demandCache = useRef(new Map<number, Record<string, number>>())
   const demandRetryAt = useRef(0)
@@ -376,17 +376,30 @@ export function FleetProvider({ children }: { children: ReactNode }) {
           })
         }
 
-        // The plan changed under the driver: a different candidate or a different time window.
+        // The plan changed under the driver: only notify when it is active, dispatched, and NOT expired!
         const plan = current?.current_assignment ?? null
+        const isExpired = plan ? Date.now() >= new Date(plan.valid_to).getTime() : true
+        const isDispatched = plan && plan.assignment_status !== 'planned' && !isExpired
         const snapshot = current
-          ? { unitId: current.call_sign, candidateId: plan?.candidate_id ?? null, validFrom: plan?.valid_from ?? null }
+          ? {
+              unitId: current.call_sign,
+              candidateId: isExpired ? null : (plan?.candidate_id ?? null),
+              validFrom: isExpired ? null : (plan?.valid_from ?? null),
+              dispatched: Boolean(isDispatched),
+            }
           : null
         const previous = lastAssignment.current
         if (
-          current && plan && previous?.unitId === current.call_sign &&
-          (previous.candidateId !== plan.candidate_id || previous.validFrom !== plan.valid_from)
+          current && plan && !isExpired && isDispatched && previous?.unitId === current.call_sign &&
+          (!previous.dispatched || previous.candidateId !== plan.candidate_id || previous.validFrom !== plan.valid_from)
         ) {
           setPositionUpdate({ name: plan.name ?? plan.candidate_id, revisedAt: new Date() })
+        } else if (
+          previous?.dispatched &&
+          (!plan || isExpired || !current || previous.unitId !== current.call_sign)
+        ) {
+          // Clear any position banner when plan ends or is cancelled
+          setPositionUpdate(null)
         }
         lastAssignment.current = snapshot
 
