@@ -25,7 +25,7 @@ import pandas as pd
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -39,6 +39,9 @@ from credentials import (
     generate_hospital_code,
     normalise_code,
     require_pepper,
+    hash_code,
+    read_code,
+    store_code,
 )
 from database import get_db
 from services.assignment import CAPABILITY, assign_ambulances_to_positions
@@ -313,7 +316,12 @@ def get_hospital(
     if not code:
         raise HTTPException(status_code=401, detail=INVALID_CODE)
     try:
-        hospital = db.scalars(select(models.Hospital).where(models.Hospital.code == code)).first()
+        # SEC-06: by hash; the plaintext column only matches hospitals not backfilled yet.
+        hospital = db.scalars(
+            select(models.Hospital).where(
+                or_(models.Hospital.code_hash == hash_code(code), models.Hospital.code == code)
+            )
+        ).first()
     except SQLAlchemyError as exc:
         raise _db_unavailable(exc)
     if hospital is None:
@@ -403,7 +411,7 @@ def _assignment_summary(assignment) -> dict:
 def _hospital_payload(hospital, fleet) -> dict:
     return {
         "hospital_id": hospital.hospital_id,
-        "code": hospital.code,
+        "code": read_code(hospital),
         "name": hospital.name,
         "lat": hospital.lat,
         "lng": hospital.lng,
@@ -725,9 +733,9 @@ def register_hospital(request: Request, registration: HospitalRegistration, db: 
         lat=registration.lat,
         lng=registration.lng,
         operating_radius_km=registration.operating_radius_km,
-        code=code,
         admin_key_hash=admin_key_hash,
     )
+    store_code(hospital, code)
     # current_status defaults to available in the model.
     hospital.ambulances = [
         models.Ambulance(call_sign=a.id, type=models.AmbulanceType(a.type))
@@ -738,7 +746,7 @@ def register_hospital(request: Request, registration: HospitalRegistration, db: 
         db.commit()
     except IntegrityError as exc:
         db.rollback()
-        if getattr(getattr(exc.orig, "diag", None), "constraint_name", None) == "hospitals_code_key":
+        if getattr(getattr(exc.orig, "diag", None), "constraint_name", None) in ("hospitals_code_key", "hospitals_code_hash_key"):
             # Another registration took the same code between our check and the insert.
             raise HTTPException(status_code=409, detail="Hospital code clash; please try again")
         # ambulances has UNIQUE (hospital_id, call_sign).
@@ -749,7 +757,7 @@ def register_hospital(request: Request, registration: HospitalRegistration, db: 
     return {
         "status": "registered",
         "hospital_id": hospital.hospital_id,
-        "code": hospital.code,
+        "code": code,
         # The only time this key is shown: only its hash is stored. Lost keys need rotating.
         "admin_key": admin_key,
         "fleet_size": len(registration.ambulances),
@@ -809,19 +817,20 @@ def add_ambulance(new: Ambulance, hospital=Depends(require_admin), db: Session =
 @app.get("/hospital/keys")
 def hospital_keys(hospital=Depends(require_admin)):
     """The driver code, for re-displaying to admins. The admin key can't be shown: only its hash is kept."""
-    return {"code": hospital.code}
+    return {"code": read_code(hospital)}
 
 
 @app.post("/hospital/rotate-code")
 def rotate_code(hospital=Depends(require_admin), db: Session = Depends(get_db)):
     """Issue a new driver code. The old one stops working immediately (drivers must re-enter it)."""
-    hospital.code = _new_credential(lambda: generate_hospital_code(db, hospital.name))
+    new_code = _new_credential(lambda: generate_hospital_code(db, hospital.name))
+    store_code(hospital, new_code)
     try:
         db.commit()
     except SQLAlchemyError as exc:
         db.rollback()
         raise _db_unavailable(exc)
-    return {"code": hospital.code}
+    return {"code": new_code}
 
 
 @app.post("/hospital/rotate-admin-key")
