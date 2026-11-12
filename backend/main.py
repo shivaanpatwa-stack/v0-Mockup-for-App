@@ -347,8 +347,10 @@ def _require_hospital_ambulance(db: Session, hospital, call_sign: str):
 
 def _current_assignments(db: Session, hospital, ambulance_ids) -> dict:
     """ambulance_id -> its current assignment: the non-cancelled one with the highest assignment_id.
+    Only assignments that have not expired long ago (within the last hour, or future) are considered current.
     Only the hospital's own ambulances are considered, whatever ids are passed in."""
     A = models.AmbulanceAssignment
+    min_valid_to = datetime.now(PLANNING_TZ) - timedelta(hours=1)
     latest = (
         select(func.max(A.assignment_id))
         .join(models.Ambulance, models.Ambulance.ambulance_id == A.ambulance_id)
@@ -356,6 +358,7 @@ def _current_assignments(db: Session, hospital, ambulance_ids) -> dict:
             models.Ambulance.hospital_id == hospital.hospital_id,
             A.ambulance_id.in_(list(ambulance_ids)),
             A.status != models.AssignmentStatus.cancelled,
+            A.valid_to >= min_valid_to,
         )
         .group_by(A.ambulance_id)
     )
@@ -594,19 +597,14 @@ def _save_run_history(db: Session, result: dict, fleet, window_start: datetime, 
         for rank, d in enumerate(by_score, start=1)
     )
 
-    # Free this hour for the new plan: the database's EXCLUDE constraint rejects
-    # overlapping non-cancelled assignments for the same ambulance.
+    # Cancel all previous non-cancelled assignments for this fleet so older plans
+    # don't linger in the database when a new plan is applied.
     ambulance_ids = {a.call_sign: a.ambulance_id for a in fleet}
     db.execute(
         update(models.AmbulanceAssignment)
         .where(
             models.AmbulanceAssignment.ambulance_id.in_(ambulance_ids.values()),
-            models.AmbulanceAssignment.ambulance_id.in_(
-                select(models.Ambulance.ambulance_id).where(models.Ambulance.hospital_id == run.hospital_id)
-            ),
             models.AmbulanceAssignment.status != models.AssignmentStatus.cancelled,
-            models.AmbulanceAssignment.valid_from < window_end,
-            models.AmbulanceAssignment.valid_to > window_start,
         )
         .values(status=models.AssignmentStatus.cancelled)
         .execution_options(synchronize_session=False)
@@ -887,6 +885,57 @@ def update_assignment_status(
         "run_id": assignment.run_id,
         **_assignment_summary(assignment),
     }
+
+
+@app.post("/fleet/dispatch-all")
+def dispatch_all(
+    hospital=Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Mark all 'planned' (staged) assignments for this hospital as 'en_route' (dispatched to mobile)."""
+    try:
+        fleet = _hospital_fleet(db, hospital.hospital_id)
+        current = _current_assignments(db, hospital, [a.ambulance_id for a in fleet])
+        dispatched_count = 0
+        for ambulance in fleet:
+            assignment = current.get(ambulance.ambulance_id)
+            if assignment and assignment.status == models.AssignmentStatus.planned:
+                assignment.status = models.AssignmentStatus.en_route
+                dispatched_count += 1
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise _db_unavailable(exc)
+    return {"dispatched_count": dispatched_count}
+
+
+@app.post("/fleet/cancel-plan")
+def cancel_plan(
+    hospital=Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Cancel all active staging assignments for this hospital and instruct units to stand by."""
+    try:
+        fleet = _hospital_fleet(db, hospital.hospital_id)
+        amb_ids = [a.ambulance_id for a in fleet]
+        if amb_ids:
+            result = db.execute(
+                update(models.AmbulanceAssignment)
+                .where(
+                    models.AmbulanceAssignment.ambulance_id.in_(amb_ids),
+                    models.AmbulanceAssignment.status != models.AssignmentStatus.cancelled,
+                )
+                .values(status=models.AssignmentStatus.cancelled)
+                .execution_options(synchronize_session=False)
+            )
+            cancelled_count = result.rowcount
+            db.commit()
+        else:
+            cancelled_count = 0
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise _db_unavailable(exc)
+    return {"cancelled_count": cancelled_count}
 
 
 @app.get("/ambulances/{call_sign}/hotspots")

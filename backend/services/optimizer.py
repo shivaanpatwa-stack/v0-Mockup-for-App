@@ -170,6 +170,26 @@ def _solve(
     return status, [i for i in range(n) if x[i].solution_value() > 0.5]
 
 
+def _greedy_placement(num_ambulances: int, scores: np.ndarray, too_close: list[tuple[int, int]]) -> list[int]:
+    """Fast fallback when ILP solver exceeds time limit: greedily pick highest-scoring points respecting spacing."""
+    from collections import defaultdict
+    adj = defaultdict(set)
+    for i, j in too_close:
+        adj[i].add(j)
+        adj[j].add(i)
+    order = np.argsort(-scores)
+    chosen: list[int] = []
+    excluded: set[int] = set()
+    for idx in order:
+        if idx in excluded:
+            continue
+        chosen.append(int(idx))
+        excluded.update(adj[idx])
+        if len(chosen) == num_ambulances:
+            return chosen
+    return chosen if len(chosen) == num_ambulances else []
+
+
 def optimize_ambulance_positions(
     candidates_df: pd.DataFrame,
     num_ambulances: int,
@@ -278,6 +298,17 @@ def optimize_ambulance_positions(
             ward_risks=ward_risks, reach_matrix=reach_matrix, coverage_weight=coverage_weight,
             ward_groups=None, max_per_ward=None,
         )
+
+    # If still not chosen, retry with pure quality score (coverage_weight=0)
+    if not chosen:
+        status, chosen = _solve(
+            n, num_ambulances, scores, too_close, [], time_limit_seconds,
+            coverage_weight=0.0,
+        )
+
+    # Ultimate fallback: greedy selection by score respecting minimum spacing
+    if not chosen:
+        chosen = _greedy_placement(num_ambulances, scores, too_close)
 
     if not chosen:
         reason = (

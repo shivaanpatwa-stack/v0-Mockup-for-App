@@ -18,7 +18,7 @@ export function TripMap({ hospital, assigned }: TripMapProps) {
 }
 
 const styles = StyleSheet.create({
-  fill: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#DCE6EA', alignItems: 'center', justifyContent: 'center', gap: 16 },
+  fill: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: colors.raised, alignItems: 'center', justifyContent: 'center', gap: 16 },
   note: { color: colors.muted, fontSize: 14, paddingHorizontal: 32, textAlign: 'center' },
   row: { flexDirection: 'row', gap: 40, alignItems: 'center' },
 })

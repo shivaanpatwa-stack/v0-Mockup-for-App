@@ -59,8 +59,9 @@ export default function MapScreen() {
   }
 
   const plan = unit.current_assignment
+  const isPlanned = plan !== null && plan.assignment_status === 'planned'
   const ended = plan !== null && now > new Date(plan.valid_to).getTime()
-  const active = plan && !ended ? plan : null
+  const active = plan && !ended && !isPlanned ? plan : null
   const point = active && active.lat !== null && active.lng !== null ? { lat: active.lat, lng: active.lng } : null
   const base = hospital ? { lat: hospital.lat, lng: hospital.lng } : null
   const kmFromBase = point && base ? formatKm(haversineKm(base.lat, base.lng, point.lat, point.lng)) : null
@@ -137,7 +138,7 @@ export default function MapScreen() {
         accessibilityLabel="Recenter"
         onPress={() => setRecenterToken((n) => n + 1)}
         style={({ pressed }) => [styles.recenter, { bottom: cardHeight + CARD_MARGIN + 12 }, pressed && { opacity: 0.8 }]}>
-        <LocateFixed size={18} color={colors.primary} />
+        <LocateFixed size={18} color={colors.accent} />
         <Text style={styles.recenterText}>Recenter</Text>
       </Pressable>
 
@@ -207,18 +208,18 @@ export default function MapScreen() {
               </View>
             )}
           </>
-        ) : plan ? (
+        ) : isPlanned ? (
           <>
-            <Text style={styles.title}>{`Your ${formatWindow(plan.valid_from, plan.valid_to)} plan has ended`}</Text>
-            <Text style={styles.meta}>Waiting for the next position plan from dispatch.</Text>
+            <Text style={styles.title}>Waiting for dispatch order</Text>
+            <Text style={styles.meta}>Your staging position is planned. Stand by for dispatch instructions.</Text>
           </>
         ) : (
           <>
-            <Text style={styles.title}>No position assigned yet.</Text>
+            <Text style={styles.title}>Stand by for instructions</Text>
             <Text style={styles.meta}>
               {unit.status === 'unavailable'
                 ? "You're out of service, so you're left out of the next position plan."
-                : 'Waiting for the next position plan from dispatch.'}
+                : 'No active staging position. Hold position and wait for instructions from dispatch.'}
             </Text>
           </>
         )}
@@ -244,7 +245,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.card,
   },
-  recenterText: { fontSize: 14, fontWeight: '700', color: colors.primary },
+  recenterText: { fontSize: 14, fontWeight: '700', color: colors.accent },
   // Flat: a 1px border and no shadow.
   card: {
     position: 'absolute',

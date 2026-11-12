@@ -67,7 +67,7 @@ export function PositionCard({ assignment, risk, base }: Props) {
           <Button
             variant="outline"
             label="Open in Maps"
-            icon={<Map size={20} color={colors.primary} />}
+            icon={<Map size={20} color={colors.accent} />}
             onPress={() => openInMaps(lat, lng)}
           />
         </View>

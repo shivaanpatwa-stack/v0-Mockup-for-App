@@ -53,7 +53,7 @@ export function Button({ label, icon, variant = 'primary', busy, disabled, ...pr
       ]}
       {...props}>
       {icon}
-      <Text style={[styles.buttonText, { color: isPrimary ? colors.white : colors.primary }]}>
+      <Text style={[styles.buttonText, { color: isPrimary ? colors.white : colors.accent }]}>
         {busy ? 'Working…' : label}
       </Text>
     </Pressable>

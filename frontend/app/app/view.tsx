@@ -53,6 +53,7 @@ export default function LiveMapPage() {
             unitsAreScenario={view.scenario}
             ghosts={ghosts}
             reachFrom={view.result?.chosen_candidates ?? []}
+            reachMinutes={view.result?.max_response_minutes ?? 20}
             uncoveredWards={showUncovered ? uncovered : []}
             layers={layers}
             focusWard={focusWard}

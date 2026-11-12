@@ -56,8 +56,8 @@ export default function DataPage() {
         <p>
           <strong>&quot;Before&quot;</strong> on every screen means all units waiting at the hospital&apos;s nearest candidate position.
           <strong> Average response</strong> is the travel time from the nearest staged unit to each ward, averaged with each
-          ward&apos;s demand score as its weight. <strong>Reachable in 15 min</strong> is the share of total demand in wards that a unit
-          can reach within 15 minutes.
+          ward&apos;s demand score as its weight. <strong>Reachable in 20 min</strong> is the share of total demand in wards that a unit
+          can reach within 20 minutes.
         </p>
 
         <h2>Travel times</h2>

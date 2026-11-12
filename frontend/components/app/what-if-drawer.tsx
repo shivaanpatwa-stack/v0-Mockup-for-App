@@ -195,7 +195,8 @@ export default function WhatIfDrawer() {
     try {
       await saveScenario(label, toRequest(knobs), {
         avg_response_min: next?.avg_response_min.after ?? null,
-        reach_15_pct: next?.demand_within_15_min_pct.after ?? null,
+        reach_20_pct: next?.demand_within_20_min_pct.after ?? null,
+        reach_15_pct: next?.demand_within_20_min_pct.after ?? null,
         wards_covered: next?.wards_covered_20_min.after ?? null,
       })
       pushToast({ text: `Saved "${label}" to Scenarios` })
@@ -314,7 +315,7 @@ export default function WhatIfDrawer() {
         <h2>Now to scenario {pending && <Loader2 className="spin" size={13} aria-label="Calculating" style={{ verticalAlign: '-2px' }} />}</h2>
         <div className="readout" aria-live="polite">
           <div className="readout-row"><span>Avg response</span><span className="mono">{num(now?.avg_response_min.after)} to {num(next?.avg_response_min.after)} min</span></div>
-          <div className="readout-row"><span>Demand reachable in 15 min</span><span className="mono">{num(now?.demand_within_15_min_pct.after, 0)}% to {num(next?.demand_within_15_min_pct.after, 0)}%</span></div>
+          <div className="readout-row"><span>Demand reachable in 20 min</span><span className="mono">{num(now?.demand_within_20_min_pct.after, 0)}% to {num(next?.demand_within_20_min_pct.after, 0)}%</span></div>
           <div className="readout-row"><span>Wards within 20 min</span><span className="mono">{now?.wards_covered_20_min.after ?? '–'} to {next?.wards_covered_20_min.after ?? '–'}</span></div>
           {scenario && scenario.assumptions.length > 0 && (
             <ul className="assumption-list">{scenario.assumptions.map((a) => <li key={a}>{a}</li>)}</ul>

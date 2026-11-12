@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic'
 import { useMemo, useState } from 'react'
-import { ArrowRight, Check, Pencil } from 'lucide-react'
+import { ArrowRight, Check, Minus, Pencil, Plus } from 'lucide-react'
 import EditFleetDialog from '@/components/edit-fleet-dialog'
 import { SortHeader, sortBy, type SortState } from '@/components/app/sort'
 import { haversineKm, movesFor, useApp } from '@/lib/app-state'
@@ -28,6 +28,7 @@ export default function StagingPlanPage() {
   const { plan, fleet, hospital, refreshHospital, refreshFleet } = useApp()
   const [hover, setHover] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
+  const [maximized, setMaximized] = useState(false)
   const [sort, setSort] = useState<SortState<Key>>({ key: 'call', dir: 1 })
 
   const moves = useMemo(() => (plan ? movesFor(plan.assignments, fleet, hospital) : []), [plan, fleet, hospital])
@@ -35,15 +36,16 @@ export default function StagingPlanPage() {
   const hovered = moves.find((m) => m.callSign === hover)
 
   const rows = useMemo(() => {
+    if (!plan) return []
     const list = (fleet ?? []).map((u) => {
-      const a = plan?.assignments.find((p) => p.ambulance_id === u.call_sign)
+      const a = plan.assignments.find((p) => p.ambulance_id === u.call_sign)
       const live = u.current_assignment
       const at = a ?? (live?.lat != null && live.lng != null ? { lat: live.lat, lng: live.lng, name: live.name, ward_code: live.ward_code, candidate_id: live.candidate_id } : null)
       return {
         call: u.call_sign,
         type: u.type,
         status: u.status,
-        assignment: live?.assignment_status ?? null,
+        assignment: live?.assignment_status ?? 'planned',
         ward: at?.ward_code ?? null,
         position: at ? at.name ?? at.candidate_id : null,
         km: at && hospital ? haversineKm(hospital, at) : null,
@@ -107,8 +109,20 @@ export default function StagingPlanPage() {
           )}
         </section>
         <aside aria-label="Move preview">
-          <h2 className="section-title" style={{ marginTop: 0 }}>{hovered ? `Preview: ${hovered.callSign}` : 'Preview'}</h2>
-          <div className="mini-map" style={{ height: 320 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <h2 className="section-title" style={{ margin: 0 }}>{hovered ? `Preview: ${hovered.callSign}` : 'Preview'}</h2>
+            <button
+              type="button"
+              className="btn btn-icon btn-sm"
+              title={maximized ? 'Minimize preview (-)' : 'Maximize preview (+)'}
+              aria-label={maximized ? 'Minimize preview' : 'Maximize preview'}
+              onClick={() => setMaximized(!maximized)}
+              style={{ width: 28, height: 28 }}
+            >
+              {maximized ? <Minus size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}
+            </button>
+          </div>
+          <div className="mini-map" style={{ height: maximized ? 520 : 320, transition: 'height 0.2s ease-out' }}>
             <LiveMap
               mini
               hour={plan?.hour ?? 0}
@@ -116,6 +130,7 @@ export default function StagingPlanPage() {
               units={plan?.assignments ?? []}
               ghosts={hovered?.from && (hovered.km ?? 0) > 0.05 ? [{ callSign: hovered.callSign, from: hovered.from, to: hovered.to }] : []}
               hotUnit={hover}
+              focusWard={hovered?.toWard ?? null}
               layers={{ demand: true, reach: false, units: true }}
             />
           </div>
@@ -126,6 +141,11 @@ export default function StagingPlanPage() {
       <h2 className="section-title">Units</h2>
       {fleet && fleet.length === 0 ? (
         <div className="empty"><strong>No units stationed here</strong><span>Use Edit fleet to add the first ambulance.</span></div>
+      ) : !plan ? (
+        <div className="empty">
+          <strong>No active staging plan</strong>
+          <span>All {plural(fleet?.length ?? 0, 'unit')} are currently on stand by at hospital base. Recalculate staging on the live map to deploy your units.</span>
+        </div>
       ) : (
         <div className="table-wrap">
           <table className="table">
@@ -141,9 +161,6 @@ export default function StagingPlanPage() {
               </tr>
             </thead>
             <tbody>
-              {fleet === null && (
-                <tr><td colSpan={6} className="muted">Loading units…</td></tr>
-              )}
               {rows.map((r) => (
                 <tr key={r.call}>
                   <td className="mono">{r.call}</td>
@@ -163,7 +180,9 @@ export default function StagingPlanPage() {
           </table>
         </div>
       )}
-      <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>From base is the straight-line distance. Response times use the planner&apos;s travel-time model.</p>
+      {plan && (
+        <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>From base is the straight-line distance. Response times use the planner&apos;s travel-time model.</p>
+      )}
       {hospital && (
         <EditFleetDialog
           hospital={hospital}

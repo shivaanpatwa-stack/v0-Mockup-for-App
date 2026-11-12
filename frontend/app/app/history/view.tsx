@@ -133,7 +133,7 @@ export default function RunHistoryPage() {
                 <th>Plan for</th>
                 <th className="num-cell">Units</th>
                 <th className="num-cell">Moved</th>
-                <th className="num-cell">15-min reach</th>
+                <th className="num-cell">20-min reach</th>
                 <th className="num-cell">Avg response</th>
                 <th>Status</th>
               </tr>
@@ -151,7 +151,7 @@ export default function RunHistoryPage() {
                   <td className="mono">{hourLabel(r.target_hour)}</td>
                   <td className="num-cell">{r.num_ambulances}</td>
                   <td className="num-cell">{r.units_moved ?? '–'}</td>
-                  <td className="num-cell"><BeforeAfter before={r.kpis?.demand_within_15_min_pct.before} after={r.kpis?.demand_within_15_min_pct.after} unit="%" better="higher" digits={0} /></td>
+                  <td className="num-cell"><BeforeAfter before={r.kpis?.demand_within_20_min_pct.before} after={r.kpis?.demand_within_20_min_pct.after} unit="%" better="higher" digits={0} /></td>
                   <td className="num-cell"><BeforeAfter before={r.kpis?.avg_response_min.before} after={r.kpis?.avg_response_min.after} unit=" min" better="lower" /></td>
                   <td>
                     {r.status === 'succeeded' ? (
@@ -219,8 +219,8 @@ export default function RunHistoryPage() {
             <dl className="kv">
               <dt>Avg response</dt>
               <dd>{num(k?.avg_response_min.after)} min{ck ? ` vs ${num(ck.avg_response_min.after)}` : ''}</dd>
-              <dt>Demand reachable in 15 min</dt>
-              <dd>{num(k?.demand_within_15_min_pct.after, 0)}%{ck ? ` vs ${num(ck.demand_within_15_min_pct.after, 0)}%` : ''}</dd>
+              <dt>Demand reachable in 20 min</dt>
+              <dd>{num(k?.demand_within_20_min_pct.after, 0)}%{ck ? ` vs ${num(ck.demand_within_20_min_pct.after, 0)}%` : ''}</dd>
               <dt>Wards within 20 min</dt>
               <dd>{k?.wards_covered_20_min.after ?? '–'}{ck ? ` vs ${ck.wards_covered_20_min.after}` : ''}</dd>
               <dt>Units</dt>
