@@ -1,4 +1,4 @@
--- SEC-06: driver codes looked up by HMAC hash and stored encrypted. Additive; old code keeps working
+-- SEC-06: driver codes looked up by HMAC hash and stored encrypted. Additive, so old code keeps working
 -- (it still writes and reads hospitals.code). Roll back with 2026_11_12_code_hash_down.sql.
 BEGIN;
 ALTER TABLE hospitals ADD COLUMN IF NOT EXISTS code_hash text NULL;

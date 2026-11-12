@@ -18,7 +18,9 @@ if DIRECTION not in ("up", "down"):
 
 NAME = sys.argv[2] if len(sys.argv) > 2 else "2026_11_07_scenarios"
 sql = (Path(__file__).resolve().parent.parent / "migrations" / f"{NAME}_{DIRECTION}.sql").read_text()
-chunks = ["\n".join(l for l in s.splitlines() if not l.strip().startswith("--")).strip() for s in sql.split(";")]
+# Drop comment lines BEFORE splitting, so a ";" inside a comment can't split a statement.
+sql = "\n".join(line for line in sql.splitlines() if not line.strip().startswith("--"))
+chunks = [s.strip() for s in sql.split(";")]
 statements = [s for s in chunks if s and s.upper() not in ("BEGIN", "COMMIT")]
 with engine.begin() as conn:  # one transaction: all or nothing
     for s in statements:
