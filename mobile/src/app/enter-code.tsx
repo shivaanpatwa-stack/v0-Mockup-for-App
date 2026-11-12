@@ -74,7 +74,7 @@ export default function EnterCodeScreen() {
   return (
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 32, paddingBottom: insets.bottom + 24 }]} keyboardShouldPersistTaps="handled">
-        <Text style={styles.brand}>AmbulanceIQ</Text>
+        <Text style={styles.brand}>Standby</Text>
 
         {found ? (
           <>

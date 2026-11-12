@@ -31,7 +31,7 @@ export function AppHeader() {
     <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
       <View style={styles.titles}>
         <Text style={styles.brand} numberOfLines={1}>
-          AmbulanceIQ
+          Standby
         </Text>
         <Text style={styles.hospital} numberOfLines={1}>
           {hospitalName ?? ' '}
