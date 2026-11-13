@@ -66,7 +66,7 @@ MODEL_VERSION = "v1"
 # Shared constants: demand level thresholds and demand-around-you
 DEMAND_THRESHOLD_HIGH = 0.46
 DEMAND_THRESHOLD_MEDIUM = 0.20
-NEARBY_MAX_MINUTES = 12
+NEARBY_MAX_MINUTES = 15
 NEARBY_LIMIT = 3
 DEMAND_NOTE = "Modelled demand by ward, not live calls"
 

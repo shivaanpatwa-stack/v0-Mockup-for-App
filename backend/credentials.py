@@ -71,9 +71,15 @@ def _fernet():
     key = os.environ.get(CODE_KEY_ENV, "").strip()
     if not key:
         return None
-    from cryptography.fernet import Fernet
+    try:
+        from cryptography.fernet import Fernet
 
-    return Fernet(key.encode())
+        # Add missing base64 padding if needed
+        if len(key) % 4 != 0:
+            key += "=" * (4 - (len(key) % 4))
+        return Fernet(key.encode())
+    except Exception:
+        return None
 
 
 def store_code(hospital, code: str) -> None:

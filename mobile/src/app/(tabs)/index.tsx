@@ -1,4 +1,4 @@
-import { ToggleLeft } from 'lucide-react-native'
+import { Clock, ToggleLeft } from 'lucide-react-native'
 import { useCallback, useEffect, useState } from 'react'
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { AvailabilitySheet } from '@/components/availability-sheet'
@@ -128,13 +128,18 @@ export default function AssignmentScreen() {
         <Button
           variant="outline"
           label={offline ? 'Reconnect to update' : 'Change availability'}
-          icon={<ToggleLeft size={22} color={colors.text} />}
+          icon={<ToggleLeft size={20} color={colors.text} />}
           disabled={offline}
           onPress={() => setSheetOpen(true)}
         />
 
-        {lastUpdated && <Text style={styles.updated}>Last updated {formatIstClock(lastUpdated)}</Text>}
-        <View style={{ height: 8 }} />
+        {lastUpdated && (
+          <View style={styles.updatedContainer}>
+            <Clock size={14} color={colors.muted} />
+            <Text style={styles.updated}>Data updated {formatIstClock(lastUpdated)} · Live sync active</Text>
+          </View>
+        )}
+        <View style={{ height: 24 }} />
       </ScrollView>
 
       <AvailabilitySheet visible={sheetOpen} current={unit.status} onChange={setAvailability} onClose={() => setSheetOpen(false)} />
@@ -143,6 +148,7 @@ export default function AssignmentScreen() {
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 20, gap: 16 },
-  updated: { textAlign: 'center', color: colors.muted, fontSize: 15, marginTop: 8 },
+  content: { padding: 16, gap: 12, paddingBottom: 100 },
+  updatedContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 8 },
+  updated: { textAlign: 'center', color: colors.muted, fontSize: 13, fontWeight: '500' },
 })

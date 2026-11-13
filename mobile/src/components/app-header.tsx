@@ -3,6 +3,7 @@ import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { colors } from '@/constants'
 import { API_URL } from '@/lib/config'
+import { formatHospitalName } from '@/lib/format'
 import { useFleet } from '@/state/fleet'
 
 export function ProfileButton() {
@@ -15,7 +16,7 @@ export function ProfileButton() {
       onPress={() =>
         Alert.alert(
           unit ? `Unit ${unit.call_sign}` : 'Not signed in to a unit',
-          `${hospitalName ?? 'No hospital'}${hospitalCode ? ` (${hospitalCode})` : ''}\nServer: ${API_URL}`,
+          `${formatHospitalName(hospitalName)}${hospitalCode ? ` (${hospitalCode})` : ''}\nServer: ${API_URL}`,
         )
       }>
       <User size={20} color={colors.white} />
@@ -34,7 +35,7 @@ export function AppHeader() {
           AmbulanceIQ
         </Text>
         <Text style={styles.hospital} numberOfLines={1}>
-          {hospitalName ?? ' '}
+          {formatHospitalName(hospitalName)}
         </Text>
       </View>
       <Pressable

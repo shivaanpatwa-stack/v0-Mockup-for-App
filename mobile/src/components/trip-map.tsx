@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { StyleSheet, View } from 'react-native'
-import MapView, { Marker } from 'react-native-maps'
+import MapView, { Marker, Polyline } from 'react-native-maps'
 import type { LatLng } from 'react-native-maps'
+import { colors } from '@/constants'
 import { HospitalMarkerView, UnitMarkerView } from './map-markers'
 import type { Coordinate, TripMapProps } from './trip-map-types'
 
@@ -30,7 +31,7 @@ function CustomMarker({ coordinate, version, children }: { coordinate: LatLng; v
 }
 
 /** MapView with the platform's default provider (Apple Maps on iOS, Google Maps on Android). */
-export function TripMap({ hospital, assigned, bottomInset, recenterToken }: TripMapProps) {
+export function TripMap({ hospital, assigned, routePoints, bottomInset, recenterToken }: TripMapProps) {
   const mapRef = useRef<MapView>(null)
   const [ready, setReady] = useState(false)
   const [size, setSize] = useState({ width: 0, height: 0 })
@@ -77,6 +78,15 @@ export function TripMap({ hospital, assigned, bottomInset, recenterToken }: Trip
         toolbarEnabled={false}
         rotateEnabled={false}
         pitchEnabled={false}>
+        {routePoints && routePoints.length >= 2 && (
+          <Polyline
+            coordinates={routePoints.map(toLatLng)}
+            strokeColor={colors.accent}
+            strokeWidth={3.5}
+            lineCap="round"
+            lineJoin="round"
+          />
+        )}
         {hospital && (
           <CustomMarker coordinate={toLatLng(hospital)} version="hospital">
             <HospitalMarkerView />
