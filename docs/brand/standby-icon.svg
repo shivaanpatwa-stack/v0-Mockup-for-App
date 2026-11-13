@@ -1,5 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Standby">
-  <rect width="512" height="512" rx="112" fill="#007A51"/>
-  <!-- First-aid cross whose bottom arm ends in a map-pin point -->
-  <path d="M220 96 H292 Q300 96 300 104 V176 H392 Q400 176 400 184 V248 Q400 256 392 256 H300 V350 L256 428 L212 350 V256 H120 Q112 256 112 248 V184 Q112 176 120 176 H212 V104 Q212 96 220 96 Z" fill="#FFFFFF"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="112" fill="#111413"/>
+  <g fill="#FFFFFF">
+    <rect x="196" y="66" width="120" height="380" rx="12"/>
+    <rect x="196" y="66" width="120" height="380" rx="12" transform="rotate(60 256 256)"/>
+    <rect x="196" y="66" width="120" height="380" rx="12" transform="rotate(120 256 256)"/>
+  </g>
+  <path d="M302 199.2 A46 46 0 1 0 256 256 A46 46 0 1 1 210 312.8" fill="none" stroke="#007A51" stroke-width="26" stroke-linecap="round"/>
+  <circle cx="302" cy="199.2" r="18" fill="#FFFFFF" stroke="#007A51" stroke-width="10"/>
+  <circle cx="210" cy="312.8" r="22" fill="#007A51"/>
+  <rect x="205" y="300" width="10" height="26" rx="2" fill="#FFFFFF"/>
+  <rect x="197" y="308" width="26" height="10" rx="2" fill="#FFFFFF"/>
 </svg>
