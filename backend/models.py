@@ -82,7 +82,10 @@ class Hospital(Base):
     operating_radius_km: Mapped[float] = mapped_column(Float, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
     # Driver code, sent as X-Hospital-Code, e.g. "PAREL-7K3QMZ". Uppercase; kept when the name changes.
-    code: Mapped[str] = mapped_column(Text, nullable=False, unique=True, index=True)
+    # SEC-06: empty once the code is encrypted (code_encrypted); lookups use code_hash.
+    code: Mapped[Optional[str]] = mapped_column(Text, nullable=True, unique=True, index=True)
+    code_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True, unique=True, index=True)
+    code_encrypted: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     # HMAC-SHA256(KEY_PEPPER, admin key) as hex; the key itself is never stored (see credentials.py).
     # Empty until scripts/backfill_keys.py has run for hospitals registered before hashing.
     admin_key_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

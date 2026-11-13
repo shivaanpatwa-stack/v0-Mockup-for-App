@@ -4,7 +4,15 @@ import Constants from 'expo-constants'
 // server (hostUri is e.g. "192.168.1.5:8081"), which is what a phone on the same Wi-Fi needs.
 function resolveApiUrl(): string {
   const fromEnv = process.env.EXPO_PUBLIC_API_URL?.trim()
-  if (fromEnv) return fromEnv.replace(/\/$/, '')
+  if (fromEnv) {
+    const url = fromEnv.replace(/\/$/, '')
+    // SEC-05: release builds must talk to the backend over HTTPS.
+    if (!__DEV__ && !url.startsWith('https://')) {
+      throw new Error('Release builds must use an https:// EXPO_PUBLIC_API_URL.')
+    }
+    return url
+  }
+  if (!__DEV__) throw new Error('Set EXPO_PUBLIC_API_URL (https://) for release builds.')
   const host = Constants.expoConfig?.hostUri?.split(':')[0]
   return `http://${host ?? 'localhost'}:8000`
 }
