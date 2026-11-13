@@ -6,6 +6,7 @@ import { ErrorNotice, NoticeBanner } from '@/components/notice-banner'
 import { LoadingState } from '@/components/states'
 import { Button, Card } from '@/components/ui'
 import { colors } from '@/constants'
+import { formatHospitalName } from '@/lib/format'
 import { describeError, getHospital, isAuthError, isNetworkError, isRateLimitError, RATE_LIMIT_MESSAGE } from '@/lib/api'
 import type { AppError, Hospital } from '@/lib/api'
 import { useFleet } from '@/state/fleet'
@@ -80,7 +81,7 @@ export default function EnterCodeScreen() {
           <>
             <Text style={styles.title}>Confirm your hospital</Text>
             <Card style={{ gap: 6 }}>
-              <Text style={styles.confirmTitle}>Connect to {found.name}?</Text>
+              <Text style={styles.confirmTitle}>Connect to {formatHospitalName(found.name)}?</Text>
               <Text style={styles.muted}>
                 Code {found.code} · {found.fleet_size} {found.fleet_size === 1 ? 'ambulance' : 'ambulances'}
               </Text>
@@ -150,7 +151,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.white,
+    backgroundColor: colors.raised,
     paddingHorizontal: 16,
     fontSize: 20,
     fontWeight: '700',

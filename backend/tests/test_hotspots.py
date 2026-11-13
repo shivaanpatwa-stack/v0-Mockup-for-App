@@ -36,7 +36,7 @@ import models
 def test_constants_block():
     assert DEMAND_THRESHOLD_HIGH == 0.46
     assert DEMAND_THRESHOLD_MEDIUM == 0.20
-    assert NEARBY_MAX_MINUTES == 12
+    assert NEARBY_MAX_MINUTES == 15
     assert NEARBY_LIMIT == 3
     assert DEMAND_NOTE == "Modelled demand by ward, not live calls"
 

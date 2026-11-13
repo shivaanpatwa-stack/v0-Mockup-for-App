@@ -1,29 +1,36 @@
 import type { AmbulanceStatus } from '@/lib/api'
 
+// Matches the web app's dark control-room theme (frontend/app/globals.css). Text colours are
+// tuned for WCAG AA on the dark surfaces; fills like `primary` carry white text.
 export const colors = {
-  bg: '#F0E9DD',
-  card: '#F8F5EE',
+  bg: '#111413',
+  card: '#181c1b',
+  raised: '#21262a',
   white: '#FFFFFF',
-  border: '#DDD5C6',
-  text: '#0F172A',
-  muted: '#5B6573',
-  faint: '#8A93A0',
-  primary: '#0B4A6F',
-  stepIdle: '#D9CFBE',
-  green: '#15803D',
-  greenBg: '#DCFCE7',
-  red: '#DC2626',
-  redBg: '#FEE2E2',
-  amber: '#B45309',
-  amberBg: '#FEF3C7',
-  amberDot: '#D97706',
-  blue: '#2563EB',
-  blueText: '#1D4ED8',
-  blueBg: '#DBEAFE',
-  indigo: '#4338CA',
-  indigoBg: '#E0E7FF',
-  slate: '#475569',
-  slateBg: '#E8ECF1',
+  border: 'rgba(232,235,233,0.08)',
+  borderSubtle: 'rgba(232,235,233,0.05)',
+  text: '#f0f3f1',
+  muted: '#b0b8b5',
+  faint: '#9aa3a0',
+  /** Safety green fill for the main action; white text on it. */
+  primary: '#007a51',
+  /** Safety green for text and icons on dark surfaces. */
+  accent: '#3dbb85',
+  stepIdle: '#242a28',
+  green: '#3dbb85',
+  greenBg: 'rgba(61,187,133,0.14)',
+  red: '#ff7a6b',
+  redBg: 'rgba(217,48,37,0.18)',
+  amber: '#e8a400',
+  amberBg: 'rgba(232,164,0,0.16)',
+  amberDot: '#e8a400',
+  blue: '#8fa3b3',
+  blueText: '#b4c4d1',
+  blueBg: 'rgba(143,163,179,0.16)',
+  indigo: '#b4c4d1',
+  indigoBg: 'rgba(143,163,179,0.16)',
+  slate: '#9aa3a0',
+  slateBg: 'rgba(154,163,160,0.14)',
 } as const
 
 export type StatusMeta = { label: string; description: string; color: string; bg: string; note?: string }

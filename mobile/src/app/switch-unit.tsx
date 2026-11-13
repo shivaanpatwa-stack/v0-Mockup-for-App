@@ -7,6 +7,7 @@ import { ErrorNotice, RateLimitNotice } from '@/components/notice-banner'
 import { EmptyState, LoadingState } from '@/components/states'
 import { Button, StatusBadge, TypeBadge } from '@/components/ui'
 import { colors } from '@/constants'
+import { formatHospitalName } from '@/lib/format'
 import { useFocusedPolling } from '@/hooks/use-focused-polling'
 import { useFleet } from '@/state/fleet'
 
@@ -45,7 +46,7 @@ export default function SelectUnitScreen() {
         <View style={styles.barTitles}>
           <Text style={styles.barTitle}>Select unit</Text>
           <Text style={styles.barHospital} numberOfLines={1}>
-            {hospitalName ?? ' '}
+            {formatHospitalName(hospitalName)}
           </Text>
         </View>
         <ProfileButton />
@@ -69,7 +70,7 @@ export default function SelectUnitScreen() {
           <LoadingState label="Loading fleet…" />
         ) : fleetLoaded && fleet.length === 0 ? (
           <View style={{ gap: 12 }}>
-            <EmptyState title="No ambulances yet" message={`${hospitalName ?? 'This hospital'} has no ambulances registered. Ask your dispatcher to add one.`} />
+            <EmptyState title="No ambulances yet" message={`${formatHospitalName(hospitalName)} has no ambulances registered. Ask your dispatcher to add one.`} />
             <Button variant="outline" label="Check again" busy={retrying} onPress={onRetry} />
           </View>
         ) : (

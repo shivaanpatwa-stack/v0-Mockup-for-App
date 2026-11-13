@@ -6,6 +6,8 @@ export type AssignedPoint = Coordinate & { label: string; type: UnitType }
 export type TripMapProps = {
   hospital: Coordinate | null
   assigned: AssignedPoint | null
+  /** Optional road route coordinates to draw the route preview polyline. */
+  routePoints?: Coordinate[]
   /** Height covered at the bottom (the card), so the markers are framed in the visible part. */
   bottomInset: number
   /** Bump this to re-fit the markers (the Recenter button). */

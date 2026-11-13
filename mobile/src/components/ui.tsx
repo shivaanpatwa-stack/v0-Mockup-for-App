@@ -53,7 +53,7 @@ export function Button({ label, icon, variant = 'primary', busy, disabled, ...pr
       ]}
       {...props}>
       {icon}
-      <Text style={[styles.buttonText, { color: isPrimary ? colors.white : colors.primary }]}>
+      <Text style={[styles.buttonText, { color: isPrimary ? colors.white : colors.text }]}>
         {busy ? 'Working…' : label}
       </Text>
     </Pressable>
@@ -66,13 +66,13 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderWidth: 1,
     borderRadius: 14,
-    padding: 18,
+    padding: 16,
   },
   pill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999 },
   pillText: { fontSize: 12, fontWeight: '700' },
   dot: { width: 8, height: 8, borderRadius: 4 },
   button: {
-    minHeight: 50,
+    minHeight: 48,
     borderRadius: 10,
     flexDirection: 'row',
     alignItems: 'center',
@@ -80,8 +80,14 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingHorizontal: 16,
   },
-  buttonPrimary: { backgroundColor: colors.primary },
-  buttonOutline: { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 },
+  buttonPrimary: {
+    backgroundColor: colors.primary,
+  },
+  buttonOutline: {
+    backgroundColor: 'rgba(232,235,233,0.04)',
+    borderColor: colors.border,
+    borderWidth: 1,
+  },
   buttonDisabled: { opacity: 0.55 },
   buttonText: { fontSize: 16, fontWeight: '700' },
 })

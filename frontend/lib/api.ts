@@ -447,7 +447,12 @@ export type SavedScenario = {
   created_at: string
 }
 
-export type ScenarioSummary = { avg_response_min: number | null; reach_15_pct: number | null; wards_covered: number | null }
+export type ScenarioSummary = {
+  avg_response_min: number | null
+  reach_20_pct?: number | null
+  reach_15_pct?: number | null
+  wards_covered: number | null
+}
 
 export async function getScenarios(): Promise<SavedScenario[]> {
   const res = await apiFetch('/scenarios')
@@ -489,4 +494,14 @@ export function restoreRun(runId: number): Promise<{ run_id: number; restored_fr
 /** Driver-level assignment status: 'en_route' = dispatched to the staging position. */
 export function setAssignmentStatus(callSign: string, status: 'planned' | 'en_route' | 'in_position') {
   return sendJson('PATCH', `/ambulances/${encodeURIComponent(callSign)}/assignment-status`, { status }, 'Updating the move failed')
+}
+
+/** Dispatches all planned units in one call: marks them 'en_route' and shares locations with mobile crews. */
+export function dispatchAllAmbulances(): Promise<{ dispatched_count: number }> {
+  return sendJson('POST', '/fleet/dispatch-all', undefined, 'Dispatching all units failed')
+}
+
+/** Cancels all active staging assignments for the fleet and instructs crews to stand by. */
+export function cancelLivePlan(): Promise<{ cancelled_count: number }> {
+  return sendJson('POST', '/fleet/cancel-plan', undefined, 'Cancelling the staging plan failed')
 }

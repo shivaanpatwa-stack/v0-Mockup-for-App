@@ -22,13 +22,13 @@ export async function loadTravelTimeMatrix(): Promise<TravelTimeMatrix> {
 }
 
 /**
- * Returns the set of ward codes reachable within `maxMinutes` (default 15 min)
+ * Returns the set of ward codes reachable within `maxMinutes` (default 20 min)
  * from any of the active candidate positions.
  */
 export function getIsochroneWards(
   matrix: TravelTimeMatrix | null,
   candidateIds: string[],
-  maxMinutes: number = 15.0
+  maxMinutes: number = 20.0
 ): Set<string> {
   const reached = new Set<string>()
   if (!matrix || candidateIds.length === 0) return reached

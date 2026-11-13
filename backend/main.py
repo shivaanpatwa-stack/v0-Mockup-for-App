@@ -25,7 +25,7 @@ import pandas as pd
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -39,6 +39,9 @@ from credentials import (
     generate_hospital_code,
     normalise_code,
     require_pepper,
+    hash_code,
+    read_code,
+    store_code,
 )
 from database import get_db
 from services.assignment import CAPABILITY, assign_ambulances_to_positions
@@ -63,7 +66,7 @@ MODEL_VERSION = "v1"
 # Shared constants: demand level thresholds and demand-around-you
 DEMAND_THRESHOLD_HIGH = 0.46
 DEMAND_THRESHOLD_MEDIUM = 0.20
-NEARBY_MAX_MINUTES = 12
+NEARBY_MAX_MINUTES = 15
 NEARBY_LIMIT = 3
 DEMAND_NOTE = "Modelled demand by ward, not live calls"
 
@@ -229,33 +232,54 @@ INVALID_CODE = "Invalid hospital code"
 INVALID_CREDENTIALS = "Invalid credentials"
 
 
+# SEC-04: counted in memory (sliding window per IP and kind), so a credential-stuffing flood never
+# touches the database. Per process: fine for the single Render instance; use Redis if scaled out.
+_limit_hits: dict[tuple[str, str], deque] = defaultdict(deque)
+_limit_lock = threading.Lock()
+
+
 def _maybe_purge(db: Session) -> None:
-    """About 1 request in 100 deletes rows nobody counts any more."""
-    if random.random() < PURGE_PROBABILITY:
-        db.execute(delete(models.AuthFailure).where(models.AuthFailure.created_at < func.now() - PURGE_OLDER_THAN))
-        db.commit()
+    """Drops IPs whose hits have all expired, about 1 call in 100 (keeps memory bounded)."""
+    if random.random() >= PURGE_PROBABILITY:
+        return
+    horizon = clock.monotonic() - max(AUTH_WINDOW, REGISTER_WINDOW).total_seconds()
+    with _limit_lock:
+        for key in [k for k, hits in _limit_hits.items() if not hits or hits[-1] < horizon]:
+            del _limit_hits[key]
 
 
 def _enforce_limit(db: Session, ip: str, kind: str, limit: int, window: timedelta) -> None:
-    """429 with Retry-After if this IP already has `limit` rows of `kind` inside `window`."""
-    F = models.AuthFailure
-    recent = db.scalars(
-        select(F.created_at)
-        .where(F.client_ip == ip, F.kind == kind, F.created_at > func.now() - window)
-        .order_by(F.created_at.desc())
-        .limit(limit)
-    ).all()
-    if len(recent) < limit:
-        return
-    # Unblocked once the oldest of the `limit` most recent rows leaves the window.
-    now = db.scalar(select(func.now()))
-    retry_after = max(1, int((recent[-1] + window - now).total_seconds()) + 1)
+    """429 with Retry-After if this IP already has `limit` hits of `kind` inside `window`."""
+    now = clock.monotonic()
+    span = window.total_seconds()
+    with _limit_lock:
+        hits = _limit_hits[(ip, kind)]
+        while hits and hits[0] <= now - span:
+            hits.popleft()
+        if len(hits) < limit:
+            return
+        retry_after = max(1, int(hits[0] + span - now) + 1)
     raise HTTPException(status_code=429, detail=TOO_MANY_ATTEMPTS, headers={"Retry-After": str(retry_after)})
 
 
 def _record(db: Session, ip: str, kind: str) -> None:
-    db.add(models.AuthFailure(client_ip=ip, kind=kind))
-    db.commit()
+    with _limit_lock:
+        _limit_hits[(ip, kind)].append(clock.monotonic())
+
+
+audit_logger = logging.getLogger("audit")
+if not audit_logger.handlers:  # always printed to the server log (Render keeps it)
+    audit_logger.addHandler(logging.StreamHandler())
+    audit_logger.setLevel(logging.INFO)
+    audit_logger.propagate = False
+
+
+def _audit(hospital, action: str, ip: str, **details) -> None:
+    """SEC-12: one structured line per state change: who (hospital), what, from where, when."""
+    audit_logger.info(
+        "audit action=%s hospital_id=%s ip=%s at=%s details=%s",
+        action, getattr(hospital, "hospital_id", None), ip, datetime.now(timezone.utc).isoformat(), json.dumps(details, default=str),
+    )
 
 
 def _guarded(db: Session, ip: str) -> None:
@@ -292,7 +316,12 @@ def get_hospital(
     if not code:
         raise HTTPException(status_code=401, detail=INVALID_CODE)
     try:
-        hospital = db.scalars(select(models.Hospital).where(models.Hospital.code == code)).first()
+        # SEC-06: by hash; the plaintext column only matches hospitals not backfilled yet.
+        hospital = db.scalars(
+            select(models.Hospital).where(
+                or_(models.Hospital.code_hash == hash_code(code), models.Hospital.code == code)
+            )
+        ).first()
     except SQLAlchemyError as exc:
         raise _db_unavailable(exc)
     if hospital is None:
@@ -347,8 +376,10 @@ def _require_hospital_ambulance(db: Session, hospital, call_sign: str):
 
 def _current_assignments(db: Session, hospital, ambulance_ids) -> dict:
     """ambulance_id -> its current assignment: the non-cancelled one with the highest assignment_id.
+    Only assignments that have not expired long ago (within the last hour, or future) are considered current.
     Only the hospital's own ambulances are considered, whatever ids are passed in."""
     A = models.AmbulanceAssignment
+    min_valid_to = datetime.now(PLANNING_TZ) - timedelta(hours=1)
     latest = (
         select(func.max(A.assignment_id))
         .join(models.Ambulance, models.Ambulance.ambulance_id == A.ambulance_id)
@@ -356,6 +387,7 @@ def _current_assignments(db: Session, hospital, ambulance_ids) -> dict:
             models.Ambulance.hospital_id == hospital.hospital_id,
             A.ambulance_id.in_(list(ambulance_ids)),
             A.status != models.AssignmentStatus.cancelled,
+            A.valid_to >= min_valid_to,
         )
         .group_by(A.ambulance_id)
     )
@@ -379,7 +411,7 @@ def _assignment_summary(assignment) -> dict:
 def _hospital_payload(hospital, fleet) -> dict:
     return {
         "hospital_id": hospital.hospital_id,
-        "code": hospital.code,
+        "code": read_code(hospital),
         "name": hospital.name,
         "lat": hospital.lat,
         "lng": hospital.lng,
@@ -594,19 +626,14 @@ def _save_run_history(db: Session, result: dict, fleet, window_start: datetime, 
         for rank, d in enumerate(by_score, start=1)
     )
 
-    # Free this hour for the new plan: the database's EXCLUDE constraint rejects
-    # overlapping non-cancelled assignments for the same ambulance.
+    # Cancel all previous non-cancelled assignments for this fleet so older plans
+    # don't linger in the database when a new plan is applied.
     ambulance_ids = {a.call_sign: a.ambulance_id for a in fleet}
     db.execute(
         update(models.AmbulanceAssignment)
         .where(
             models.AmbulanceAssignment.ambulance_id.in_(ambulance_ids.values()),
-            models.AmbulanceAssignment.ambulance_id.in_(
-                select(models.Ambulance.ambulance_id).where(models.Ambulance.hospital_id == run.hospital_id)
-            ),
             models.AmbulanceAssignment.status != models.AssignmentStatus.cancelled,
-            models.AmbulanceAssignment.valid_from < window_end,
-            models.AmbulanceAssignment.valid_to > window_start,
         )
         .values(status=models.AssignmentStatus.cancelled)
         .execution_options(synchronize_session=False)
@@ -627,8 +654,13 @@ def _save_run_history(db: Session, result: dict, fleet, window_start: datetime, 
     return run.run_id
 
 
+# SEC-01: Greater Mumbai operating territory.
+MUMBAI_LAT_MIN, MUMBAI_LAT_MAX = 18.85, 19.30
+MUMBAI_LNG_MIN, MUMBAI_LNG_MAX = 72.75, 73.05
+
+
 class Ambulance(BaseModel):
-    id: str = Field(min_length=1)
+    id: str = Field(min_length=1, max_length=20, pattern=r"^[A-Za-z0-9 _/-]+$")
     type: str
 
     @field_validator("id")
@@ -649,7 +681,7 @@ class Ambulance(BaseModel):
 
 class AmbulanceStatusUpdate(BaseModel):
     status: models.AmbulanceStatus
-    note: Optional[str] = None
+    note: Optional[str] = Field(default=None, max_length=255)
 
 
 class AssignmentStatusUpdate(BaseModel):
@@ -661,21 +693,22 @@ class SimulationRequest(BaseModel):
     hour: int = Field(ge=0, le=23)
     num_ambulances: Optional[int] = Field(default=None, ge=1, le=20)
     operating_radius_km: Optional[float] = Field(default=None, ge=1, le=50)
-    min_spacing_km: Optional[float] = Field(default=None, ge=0)
+    min_spacing_km: Optional[float] = Field(default=None, ge=0, le=10)
     max_response_minutes: Optional[float] = Field(default=None, ge=5, le=60)
 
 
 class HospitalUpdate(BaseModel):
-    name: Optional[str] = Field(default=None, min_length=1)
-    operating_radius_km: Optional[float] = Field(default=None, gt=0, le=100)
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    operating_radius_km: Optional[float] = Field(default=None, gt=0, le=50)
 
 
 class HospitalRegistration(BaseModel):
-    hospital_name: str
-    lat: float = Field(ge=-90, le=90)
-    lng: float = Field(ge=-180, le=180)
-    operating_radius_km: float = Field(gt=0)
-    ambulances: List[Ambulance] = Field(min_length=1)
+    hospital_name: str = Field(min_length=2, max_length=100)
+    # SEC-01: only inside Greater Mumbai (422 otherwise).
+    lat: float = Field(ge=MUMBAI_LAT_MIN, le=MUMBAI_LAT_MAX)
+    lng: float = Field(ge=MUMBAI_LNG_MIN, le=MUMBAI_LNG_MAX)
+    operating_radius_km: float = Field(gt=0, le=50)
+    ambulances: List[Ambulance] = Field(min_length=1, max_length=50)
 
 
 @app.get("/health")
@@ -700,9 +733,9 @@ def register_hospital(request: Request, registration: HospitalRegistration, db: 
         lat=registration.lat,
         lng=registration.lng,
         operating_radius_km=registration.operating_radius_km,
-        code=code,
         admin_key_hash=admin_key_hash,
     )
+    store_code(hospital, code)
     # current_status defaults to available in the model.
     hospital.ambulances = [
         models.Ambulance(call_sign=a.id, type=models.AmbulanceType(a.type))
@@ -713,7 +746,7 @@ def register_hospital(request: Request, registration: HospitalRegistration, db: 
         db.commit()
     except IntegrityError as exc:
         db.rollback()
-        if getattr(getattr(exc.orig, "diag", None), "constraint_name", None) == "hospitals_code_key":
+        if getattr(getattr(exc.orig, "diag", None), "constraint_name", None) in ("hospitals_code_key", "hospitals_code_hash_key"):
             # Another registration took the same code between our check and the insert.
             raise HTTPException(status_code=409, detail="Hospital code clash; please try again")
         # ambulances has UNIQUE (hospital_id, call_sign).
@@ -724,7 +757,7 @@ def register_hospital(request: Request, registration: HospitalRegistration, db: 
     return {
         "status": "registered",
         "hospital_id": hospital.hospital_id,
-        "code": hospital.code,
+        "code": code,
         # The only time this key is shown: only its hash is stored. Lost keys need rotating.
         "admin_key": admin_key,
         "fleet_size": len(registration.ambulances),
@@ -784,19 +817,20 @@ def add_ambulance(new: Ambulance, hospital=Depends(require_admin), db: Session =
 @app.get("/hospital/keys")
 def hospital_keys(hospital=Depends(require_admin)):
     """The driver code, for re-displaying to admins. The admin key can't be shown: only its hash is kept."""
-    return {"code": hospital.code}
+    return {"code": read_code(hospital)}
 
 
 @app.post("/hospital/rotate-code")
 def rotate_code(hospital=Depends(require_admin), db: Session = Depends(get_db)):
     """Issue a new driver code. The old one stops working immediately (drivers must re-enter it)."""
-    hospital.code = _new_credential(lambda: generate_hospital_code(db, hospital.name))
+    new_code = _new_credential(lambda: generate_hospital_code(db, hospital.name))
+    store_code(hospital, new_code)
     try:
         db.commit()
     except SQLAlchemyError as exc:
         db.rollback()
         raise _db_unavailable(exc)
-    return {"code": hospital.code}
+    return {"code": new_code}
 
 
 @app.post("/hospital/rotate-admin-key")
@@ -839,7 +873,9 @@ def update_ambulance_status(
     update_: AmbulanceStatusUpdate,
     hospital=Depends(get_hospital),
     db: Session = Depends(get_db),
+    audit_ip: str = Depends(get_client_ip),
 ):
+    _audit(hospital, "ambulance_status", audit_ip, call_sign=call_sign, status=update_.status)
     try:
         ambulance = _require_hospital_ambulance(db, hospital, call_sign)
         # Same status again (e.g. a double tap): no change and no duplicate event.
@@ -870,7 +906,9 @@ def update_assignment_status(
     update_: AssignmentStatusUpdate,
     hospital=Depends(get_hospital),
     db: Session = Depends(get_db),
+    audit_ip: str = Depends(get_client_ip),
 ):
+    _audit(hospital, "assignment_status", audit_ip, call_sign=call_sign, status=update_.status)
     try:
         ambulance = _require_hospital_ambulance(db, hospital, call_sign)
         assignment = _current_assignments(db, hospital, [ambulance.ambulance_id]).get(ambulance.ambulance_id)
@@ -887,6 +925,57 @@ def update_assignment_status(
         "run_id": assignment.run_id,
         **_assignment_summary(assignment),
     }
+
+
+@app.post("/fleet/dispatch-all")
+def dispatch_all(
+    hospital=Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Mark all 'planned' (staged) assignments for this hospital as 'en_route' (dispatched to mobile)."""
+    try:
+        fleet = _hospital_fleet(db, hospital.hospital_id)
+        current = _current_assignments(db, hospital, [a.ambulance_id for a in fleet])
+        dispatched_count = 0
+        for ambulance in fleet:
+            assignment = current.get(ambulance.ambulance_id)
+            if assignment and assignment.status == models.AssignmentStatus.planned:
+                assignment.status = models.AssignmentStatus.en_route
+                dispatched_count += 1
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise _db_unavailable(exc)
+    return {"dispatched_count": dispatched_count}
+
+
+@app.post("/fleet/cancel-plan")
+def cancel_plan(
+    hospital=Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Cancel all active staging assignments for this hospital and instruct units to stand by."""
+    try:
+        fleet = _hospital_fleet(db, hospital.hospital_id)
+        amb_ids = [a.ambulance_id for a in fleet]
+        if amb_ids:
+            result = db.execute(
+                update(models.AmbulanceAssignment)
+                .where(
+                    models.AmbulanceAssignment.ambulance_id.in_(amb_ids),
+                    models.AmbulanceAssignment.status != models.AssignmentStatus.cancelled,
+                )
+                .values(status=models.AssignmentStatus.cancelled)
+                .execution_options(synchronize_session=False)
+            )
+            cancelled_count = result.rowcount
+            db.commit()
+        else:
+            cancelled_count = 0
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise _db_unavailable(exc)
+    return {"cancelled_count": cancelled_count}
 
 
 @app.get("/ambulances/{call_sign}/hotspots")
@@ -1057,7 +1146,9 @@ def optimize(
     ),
     hospital=Depends(require_admin),
     db: Session = Depends(get_db),
+    audit_ip: str = Depends(get_client_ip),
 ):
+    _audit(hospital, "recalculate_staging", audit_ip, hour=hour, min_spacing_km=min_spacing_km)
     if "error" in data:
         raise HTTPException(status_code=503, detail=data["error"])
 
@@ -1356,7 +1447,8 @@ def simulate_scenario(request: ScenarioRequest, hospital=Depends(require_admin),
 
 
 @app.post("/scenarios/apply")
-def apply_scenario(request: ScenarioRequest, hospital=Depends(require_admin), db: Session = Depends(get_db)):
+def apply_scenario(request: ScenarioRequest, hospital=Depends(require_admin), db: Session = Depends(get_db), audit_ip: str = Depends(get_client_ip)):
+    _audit(hospital, "apply_scenario", audit_ip, hour=request.hour)
     """Use a scenario as the staging plan: same calculation as /scenarios/simulate, saved as a run."""
     fleet, in_service = _scenario_fleet(db, hospital)
     n = request.num_ambulances or len(in_service)
@@ -1526,7 +1618,8 @@ def run_history(
 
 
 @app.post("/runs/{run_id}/restore")
-def restore_run(run_id: int, hospital=Depends(require_admin), db: Session = Depends(get_db)):
+def restore_run(run_id: int, hospital=Depends(require_admin), db: Session = Depends(get_db), audit_ip: str = Depends(get_client_ip)):
+    _audit(hospital, "restore_run", audit_ip, run_id=run_id)
     """Make an earlier run's positions the current plan again, saved as a new run (trigger "restore")."""
     if "error" in data:
         raise HTTPException(status_code=503, detail=data["error"])

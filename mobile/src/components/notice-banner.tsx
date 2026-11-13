@@ -8,9 +8,9 @@ import { formatIstClock } from '@/lib/time'
 type Tone = 'warning' | 'error' | 'info'
 
 const TONES: Record<Tone, { bg: string; border: string; color: string }> = {
-  warning: { bg: colors.amberBg, border: '#F0D08A', color: colors.amber },
-  error: { bg: colors.redBg, border: '#F7BDBD', color: colors.red },
-  info: { bg: colors.blueBg, border: '#BFD4F5', color: colors.primary },
+  warning: { bg: colors.amberBg, border: 'rgba(232,164,0,0.45)', color: colors.amber },
+  error: { bg: colors.redBg, border: 'rgba(255,122,107,0.45)', color: colors.red },
+  info: { bg: colors.blueBg, border: 'rgba(143,163,179,0.45)', color: colors.blueText },
 }
 
 type Props = {
@@ -116,6 +116,6 @@ const styles = StyleSheet.create({
   banner: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 14, borderRadius: 12, borderWidth: 1 },
   body: { flex: 1, gap: 10 },
   message: { fontSize: 14, fontWeight: '600', lineHeight: 20 },
-  action: { alignSelf: 'flex-start', paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8, borderWidth: 1, backgroundColor: 'rgba(255,255,255,0.6)' },
+  action: { alignSelf: 'flex-start', paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8, borderWidth: 1, backgroundColor: 'rgba(255,255,255,0.06)' },
   actionText: { fontSize: 14, fontWeight: '800' },
 })

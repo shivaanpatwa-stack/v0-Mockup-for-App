@@ -1,5 +1,5 @@
-import { ToggleLeft } from 'lucide-react-native'
-import { useCallback, useState } from 'react'
+import { Clock, ToggleLeft } from 'lucide-react-native'
+import { useCallback, useEffect, useState } from 'react'
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { AvailabilitySheet } from '@/components/availability-sheet'
 import { BackOnlineNotice, ErrorNotice, NoticeBanner, OfflineNotice, RateLimitNotice } from '@/components/notice-banner'
@@ -49,6 +49,14 @@ export default function AssignmentScreen() {
   }
 
   const assignment = unit.current_assignment
+  const isEnded = !assignment || now > new Date(assignment.valid_to).getTime()
+
+  // Clear any position update banner if the plan has ended or there is no plan
+  useEffect(() => {
+    if (isEnded && positionUpdate) {
+      dismissPositionUpdate()
+    }
+  }, [isEnded, positionUpdate, dismissPositionUpdate])
 
   async function onAdvance(stage: AssignmentStage) {
     setAdvancing(true)
@@ -61,7 +69,7 @@ export default function AssignmentScreen() {
     <>
       <ScrollView
         contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}>
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />}>
         <RateLimitNotice until={rateLimitUntil} />
         {offline ? (
           <OfflineNotice cachedAt={dataAt} onRetry={onRefresh} retrying={refreshing} />
@@ -70,7 +78,7 @@ export default function AssignmentScreen() {
         )}
         <BackOnlineNotice show={backOnline} />
         {actionError && <ErrorNotice error={actionError} onDismiss={clearActionError} />}
-        {positionUpdate && (
+        {positionUpdate && !isEnded && (
           <NoticeBanner
             tone="info"
             message={`Your plan was updated. New position: ${positionUpdate.name}`}
@@ -82,17 +90,22 @@ export default function AssignmentScreen() {
 
         {!assignment ? (
           <EmptyState
-            title="No position assigned yet."
+            title="Stand by for instructions"
             message={
               unit.status === 'unavailable'
                 ? "You're out of service, so you're left out of the next position plan. Set yourself available to be planned in."
-                : 'Waiting for the next position plan from dispatch. Pull down to refresh.'
+                : 'No active staging order. Hold your current position and stand by for instructions from dispatch.'
             }
+          />
+        ) : assignment.assignment_status === 'planned' ? (
+          <EmptyState
+            title="Waiting for dispatch order"
+            message="Dispatch has prepared a staging plan. Stand by for the dispatch order before proceeding to your new position."
           />
         ) : now > new Date(assignment.valid_to).getTime() ? (
           <EmptyState
-            title={`Your ${formatWindow(assignment.valid_from, assignment.valid_to)} plan has ended`}
-            message="Waiting for the next position plan from dispatch."
+            title="Stand by for instructions"
+            message="No active staging order. Hold your current position and stand by for instructions from dispatch."
           />
         ) : (
           <>
@@ -115,13 +128,18 @@ export default function AssignmentScreen() {
         <Button
           variant="outline"
           label={offline ? 'Reconnect to update' : 'Change availability'}
-          icon={<ToggleLeft size={22} color={colors.text} />}
+          icon={<ToggleLeft size={20} color={colors.text} />}
           disabled={offline}
           onPress={() => setSheetOpen(true)}
         />
 
-        {lastUpdated && <Text style={styles.updated}>Last updated {formatIstClock(lastUpdated)}</Text>}
-        <View style={{ height: 8 }} />
+        {lastUpdated && (
+          <View style={styles.updatedContainer}>
+            <Clock size={14} color={colors.muted} />
+            <Text style={styles.updated}>Data updated {formatIstClock(lastUpdated)} · Live sync active</Text>
+          </View>
+        )}
+        <View style={{ height: 24 }} />
       </ScrollView>
 
       <AvailabilitySheet visible={sheetOpen} current={unit.status} onChange={setAvailability} onClose={() => setSheetOpen(false)} />
@@ -130,6 +148,7 @@ export default function AssignmentScreen() {
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 20, gap: 16 },
-  updated: { textAlign: 'center', color: colors.muted, fontSize: 15, marginTop: 8 },
+  content: { padding: 16, gap: 12, paddingBottom: 100 },
+  updatedContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 8 },
+  updated: { textAlign: 'center', color: colors.muted, fontSize: 13, fontWeight: '500' },
 })
