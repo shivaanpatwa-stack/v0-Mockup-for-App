@@ -334,7 +334,7 @@ export default function FleetTable({
                     <span className="status-text">
                       {row.status ? STATUS_LABEL[row.status] : '—'}
                     </span>
-                    {row.assignmentStatus && (
+                    {row.status === 'available' && row.assignmentStatus && (
                       <span className="fleet-assignment-chip">
                         {ASSIGNMENT_LABEL[row.assignmentStatus]}
                       </span>

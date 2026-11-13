@@ -166,9 +166,20 @@ export default function StagingPlanPage() {
                   <td className="mono">{r.call}</td>
                   <td>{r.type}</td>
                   <td>
-                    <span className={`status${r.status === 'unavailable' ? ' status-warning' : ''}`}>
-                      <span className="dot" aria-hidden="true" />{STATUS[r.status]}
-                      {r.assignment && r.status !== 'unavailable' ? ` · ${ASSIGN[r.assignment]}` : ''}
+                    <span
+                      className={`status ${
+                        r.status === 'responding'
+                          ? 'status-responding'
+                          : r.status === 'at_hospital'
+                            ? 'status-hospital'
+                            : r.status === 'unavailable'
+                              ? 'status-warning'
+                              : 'status-available'
+                      }`}
+                    >
+                      <span className="dot" aria-hidden="true" />
+                      {STATUS[r.status]}
+                      {r.status === 'available' && r.assignment ? ` · ${ASSIGN[r.assignment]}` : ''}
                     </span>
                   </td>
                   <td className="mono">{r.ward ?? '–'}</td>

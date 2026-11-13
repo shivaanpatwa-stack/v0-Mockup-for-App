@@ -440,6 +440,25 @@ input[type='range'].range::-moz-range-thumb {
 .status-critical .dot {
   background: var(--critical);
 }
+.status-responding {
+  color: #ff7a6b;
+}
+.status-responding .dot {
+  background: #ff5c5c !important;
+  box-shadow: 0 0 6px rgba(255, 92, 92, 0.45);
+}
+.status-hospital {
+  color: #9cb3c9;
+}
+.status-hospital .dot {
+  background: #6ba3d6 !important;
+}
+.status-available {
+  color: var(--ink);
+}
+.status-available .dot {
+  background: #3dbb85 !important;
+}
 .status-warning {
   color: var(--warning-text);
 }
@@ -649,6 +668,19 @@ input[type='range'].range::-moz-range-thumb {
   flex: none;
   border-radius: 50%;
   background: var(--brand-text);
+}
+.status-dot.dot-responding {
+  background: #ff5c5c !important;
+  box-shadow: 0 0 6px rgba(255, 92, 92, 0.45);
+}
+.status-dot.dot-at-hospital {
+  background: #6ba3d6 !important;
+}
+.status-dot.dot-available {
+  background: #3dbb85 !important;
+}
+.status-dot.dot-unavailable {
+  background: #e8a400 !important;
 }
 .hospital-menu-list {
   position: absolute;

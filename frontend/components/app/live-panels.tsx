@@ -260,10 +260,11 @@ export function RecalcControl() {
 const STATUS_TEXT: Record<string, string> = { planned: 'Staged (not dispatched)', en_route: 'Dispatched · On the way', in_position: 'In position' }
 
 function MoveRow({ m, hour, preview, onHover, hot }: { m: Move; hour: number; preview: boolean; onHover: (id: string | null) => void; hot: boolean }) {
-  const { pushToast, refreshFleet } = useApp()
+  const { pushToast, refreshFleet, fleet } = useApp()
   const [busy, setBusy] = useState(false)
   const scores = getBundledScoresForHour(hour)
   const score = m.toWard ? scores[m.toWard] : undefined
+  const unit = fleet?.find((f) => f.call_sign === m.callSign)
   const dispatch = async () => {
     setBusy(true)
     try {
@@ -281,9 +282,36 @@ function MoveRow({ m, hour, preview, onHover, hot }: { m: Move; hour: number; pr
       <div className="move-top">
         <span className="move-id">{m.callSign} <span className="muted">{m.type}</span></span>
         {!preview && (
-          <span className="status">
-            {(m.status ?? 'planned') === 'in_position' ? <Check aria-hidden="true" /> : <span className="dot" aria-hidden="true" />}
-            {STATUS_TEXT[m.status ?? 'planned'] ?? m.status}
+          <span
+            className={`status ${
+              unit?.status === 'responding'
+                ? 'status-responding'
+                : unit?.status === 'at_hospital'
+                  ? 'status-hospital'
+                  : 'status-available'
+            }`}
+          >
+            {unit?.status === 'responding' ? (
+              <>
+                <span className="dot" aria-hidden="true" />
+                Responding to a call
+              </>
+            ) : unit?.status === 'at_hospital' ? (
+              <>
+                <span className="dot" aria-hidden="true" />
+                At hospital
+              </>
+            ) : (m.status ?? 'planned') === 'in_position' ? (
+              <>
+                <Check aria-hidden="true" />
+                In position
+              </>
+            ) : (
+              <>
+                <span className="dot" aria-hidden="true" />
+                {STATUS_TEXT[m.status ?? 'planned'] ?? m.status}
+              </>
+            )}
           </span>
         )}
       </div>
