@@ -2522,3 +2522,40 @@ input[type='range'].range::-moz-range-thumb {
     bottom: 0;
   }
 }
+
+/* Meet the team */
+.team-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--s-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.team-member {
+  display: flex;
+  gap: var(--s-3);
+  align-items: flex-start;
+  padding: var(--s-4);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+.team-member p {
+  margin: 6px 0 0;
+  font-size: var(--fs-14);
+}
+.team-photo {
+  flex: none;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.team-initials {
+  display: grid;
+  place-items: center;
+  background: var(--raised);
+  color: var(--ink-muted);
+  font: 600 var(--fs-20) var(--font-display);
+}
