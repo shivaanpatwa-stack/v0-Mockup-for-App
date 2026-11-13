@@ -492,6 +492,12 @@ input[type='range'].range::-moz-range-thumb {
   text-decoration: none;
   white-space: nowrap;
 }
+.wordmark-logo {
+  display: block;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+}
 .wordmark-mark {
   display: grid;
   place-items: center;
