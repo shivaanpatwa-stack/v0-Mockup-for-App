@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 400" width="1280" height="400" role="img" aria-label="Standby">
+  <rect width="1280" height="400" fill="#F7F8F6"/>
+  <g transform="translate(80 72) scale(0.5)">
+    <rect width="512" height="512" rx="112" fill="#007A51"/>
+    <path d="M220 96 H292 Q300 96 300 104 V176 H392 Q400 176 400 184 V248 Q400 256 392 256 H300 V350 L256 428 L212 350 V256 H120 Q112 256 112 248 V184 Q112 176 120 176 H212 V104 Q212 96 220 96 Z" fill="#FFFFFF"/>
+  </g>
+  <text x="380" y="240" fill="#16191A" font-family="Archivo, 'Helvetica Neue', Arial, sans-serif" font-weight="700" font-size="150" letter-spacing="-3">Standby</text>
+</svg>

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Standby">
+  <rect width="512" height="512" rx="112" fill="#007A51"/>
+  <!-- First-aid cross whose bottom arm ends in a map-pin point -->
+  <path d="M220 96 H292 Q300 96 300 104 V176 H392 Q400 176 400 184 V248 Q400 256 392 256 H300 V350 L256 428 L212 350 V256 H120 Q112 256 112 248 V184 Q112 176 120 176 H212 V104 Q212 96 220 96 Z" fill="#FFFFFF"/>
+</svg>
