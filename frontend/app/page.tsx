@@ -69,7 +69,7 @@ export default function Landing() {
         <nav className="links" aria-label="Page">
           <a href="#problem">Problem</a>
           <a href="#how">How it works</a>
-          <a href="#today">What works today</a>
+          <Link href="/team">Team</Link>
           <Link href="/start">Sign in</Link>
         </nav>
       </header>
@@ -113,13 +113,7 @@ export default function Landing() {
           <section id="how" className="story-block" aria-labelledby="how-h">
             <h2 id="how-h">How it works</h2>
             <div className="story-text">
-              <div className="shot">
-                <img src="/landing/live-map.jpg" alt="The live map: Mumbai wards shaded by predicted demand, unit positions, the summary strip and the list of moves." width={800} height={500} />
-                <span className="callout-num" style={{ left: '14%', bottom: '8%' }} aria-hidden="true">1</span>
-                <span className="callout-num" style={{ right: '20%', top: '22%' }} aria-hidden="true">2</span>
-                <span className="callout-num" style={{ left: '22%', top: '6%' }} aria-hidden="true">3</span>
-              </div>
-              <ol className="callout-list">
+              <ol className="callout-list" style={{ marginTop: 0 }}>
                 <li><span className="callout-num" aria-hidden="true">1</span><span><strong>Forecast.</strong> Each of the 24 wards gets a demand score for every hour. Drag the time bar to see where the city will need ambulances at 08:00, 18:00 or 03:00.</span></li>
                 <li><span className="callout-num" aria-hidden="true">2</span><span><strong>Recommendation.</strong> Recalculate staging picks one waiting position per unit, a minimum distance apart, and lists each move with the ward it covers and why.</span></li>
                 <li><span className="callout-num" aria-hidden="true">3</span><span><strong>Result.</strong> Before anything changes, you see the difference: units moved, share of demand reachable in 20 minutes, and average response. Apply it, or discard it.</span></li>
@@ -175,14 +169,9 @@ export default function Landing() {
           <section className="story-block" aria-labelledby="team-h">
             <h2 id="team-h">Team</h2>
             <div className="story-text">
-              <div className="people">
-                <div className="person">[Name] · [Role]</div>
-                <div className="person">[Name] · [Role]</div>
-                <div className="person">[Name] · [Role]</div>
-              </div>
-              <p className="gap-marker" style={{ display: 'block', padding: 12 }}>[Founder note: 2 to 3 sentences on why you built this]</p>
+              <p>The students building {APP_NAME}, and why we started.</p>
               <p>
-                Contact: <span className="gap-marker">[email]</span>
+                <Link href="/team" className="btn">Meet the team</Link>
               </p>
             </div>
           </section>

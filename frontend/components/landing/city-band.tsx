@@ -4,11 +4,13 @@ import { useEffect, useRef, useState } from 'react'
 import type { FeatureCollection, Position } from 'geojson'
 import { WARD_HOUR_RISK_SCORES } from '@/lib/ward-risk-data'
 import { WARD_CENTROIDS } from '@/lib/ward-names'
+import { DEMAND_COLORS } from '@/lib/map-theme'
 
 // Plain canvas, no map library: 24 real ward outlines (27 KB) coloured by the simulated demand for
 // each hour, and three units easing toward the busiest wards. Static frame under reduced motion and
 // on small screens; paused while off-screen.
-const RAMP = ['#3b5266', '#4f6f8f', '#6b90b4', '#93b3d3']
+// Same demand colours as the live map (lib/map-theme.ts), so the landing never drifts from the app.
+const RAMP = [DEMAND_COLORS.low, DEMAND_COLORS.moderate, DEMAND_COLORS.high, DEMAND_COLORS['very-high']]
 const level = (s: number) => (s < 0.2 ? 0 : s <= 0.46 ? 1 : s <= 0.7 ? 2 : 3)
 const BASE = { lat: 19.0176, lng: 72.8562 } // example hospital, Parel
 const HOUR_MS = 1500
