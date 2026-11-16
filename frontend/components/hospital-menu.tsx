@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
+import { useOnboarding } from '@/components/onboarding/onboarding-provider'
 import CopyCode from './copy-code'
 import { ApiError, rotateDashboardKey, rotateDriverCode, signOut, type Hospital } from '@/lib/api'
 
@@ -23,6 +24,7 @@ const CONFIRM: Record<Rotating, { title: string; body: string; action: string }>
 /** Header menu: hospital keys (view and regenerate) and sign out / switch hospital. */
 export default function HospitalMenu({ hospital, onChanged }: { hospital: Hospital; onChanged: () => Promise<void> | void }) {
   const menuRef = useRef<HTMLDetailsElement>(null)
+  const { startTour } = useOnboarding()
   const dialogRef = useRef<HTMLDialogElement>(null)
   const [confirming, setConfirming] = useState<Rotating | null>(null)
   const [busy, setBusy] = useState(false)
@@ -75,7 +77,7 @@ export default function HospitalMenu({ hospital, onChanged }: { hospital: Hospit
   return (
     <>
       <details className="hospital-menu" ref={menuRef}>
-        <summary className="hospital-chip" aria-label="Hospital menu">
+        <summary className="hospital-chip" aria-label="Hospital menu" data-tour="hospital-menu">
           <span className="status-dot" />
           <span className="hospital-chip-name">{hospital.name}</span>
           <span className="hospital-chip-chevron" aria-hidden="true">▾</span>
@@ -87,6 +89,16 @@ export default function HospitalMenu({ hospital, onChanged }: { hospital: Hospit
           <div className="menu-divider" />
           <button type="button" role="menuitem" onClick={openKeys}>
             Hospital keys
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              if (menuRef.current) menuRef.current.open = false
+              startTour()
+            }}
+          >
+            Take a tour
           </button>
           <button type="button" role="menuitem" onClick={onSignOut}>
             Switch hospital
