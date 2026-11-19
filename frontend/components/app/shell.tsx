@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { BookOpen, History, ListChecks, Map as MapIcon, MoreHorizontal, Search, SlidersHorizontal } from 'lucide-react'
 import HospitalMenu from '@/components/hospital-menu'
 import Wordmark from '@/components/app/wordmark'
+import { useOnboarding } from '@/components/onboarding/onboarding-provider'
 import { useApp } from '@/lib/app-state'
 import { formatClock } from '@/lib/format'
 import { WARD_NAMES } from '@/lib/ward-names'
@@ -55,6 +56,7 @@ function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void 
   const ref = useRef<HTMLDialogElement>(null)
   const router = useRouter()
   const { fleet, plan, setFocusWard, recalculate, setWhatIfOpen } = useApp()
+  const { startTour } = useOnboarding()
   const [q, setQ] = useState('')
   const [index, setIndex] = useState(0)
 
@@ -75,6 +77,7 @@ function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void 
     const actions: Command[] = [
       { id: 'recalc', label: 'Recalculate staging', kind: 'Action · R', run: () => { router.push('/app'); recalculate() } },
       { id: 'whatif', label: 'What if…', kind: 'Action · W', run: () => { router.push('/app'); setWhatIfOpen(true) } },
+      { id: 'tour', label: 'Take a tour', kind: 'Action', run: startTour },
     ]
     const wards: Command[] = Object.entries(WARD_NAMES).map(([code, name]) => ({
       id: `ward-${code}`,
@@ -92,7 +95,7 @@ function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void 
       }
     })
     return [...actions, ...pages, ...units, ...wards]
-  }, [router, fleet, plan, recalculate, setWhatIfOpen, setFocusWard])
+  }, [router, fleet, plan, recalculate, setWhatIfOpen, setFocusWard, startTour])
 
   const matches = useMemo(() => {
     const needle = q.trim().toLowerCase()
@@ -210,12 +213,14 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
   const { hospital, refreshHospital, recalculate, whatIfOpen, setWhatIfOpen } = useApp()
+  const { active: onboarding } = useOnboarding()
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (onboarding) return
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setPaletteOpen((v) => !v)
@@ -239,16 +244,16 @@ export default function AppShell({ children }: { children: ReactNode }) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [router, pathname, recalculate, whatIfOpen, setWhatIfOpen])
+  }, [router, pathname, recalculate, whatIfOpen, setWhatIfOpen, onboarding])
 
   const current = (href: string) => (href === '/app' ? pathname === '/app' : pathname.startsWith(href))
 
   return (
-    <div className="app">
+    <div className="app" inert={onboarding}>
       <a href="#main" className="skip-link">Skip to content</a>
       <header className="topbar">
         <Wordmark />
-        <nav className="tabs" aria-label="Sections">
+        <nav className="tabs" aria-label="Sections" data-tour="nav">
           {SECTIONS.map((s) => (
             <Link key={s.href} href={s.href} className="tab" aria-current={current(s.href) ? 'page' : undefined}>
               {s.label} <kbd aria-hidden="true">{s.key}</kbd>
@@ -257,7 +262,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         </nav>
         <div className="topbar-right">
           <LiveStatus />
-          <button type="button" className="btn search-btn" onClick={() => setPaletteOpen(true)} aria-label="Search wards, units and pages">
+          <button type="button" className="btn search-btn" onClick={() => setPaletteOpen(true)} aria-label="Search wards, units and pages" data-tour="search">
             <Search aria-hidden="true" />
             <span className="search-label">Search</span>
             <kbd aria-hidden="true">⌘K</kbd>
@@ -268,7 +273,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       <main id="main" className="app-main">
         {children}
       </main>
-      <nav className="bottom-tabs" aria-label="Sections">
+      <nav className="bottom-tabs" aria-label="Sections" data-tour="nav">
         {SECTIONS.slice(0, 3).map((s) => (
           <Link key={s.href} href={s.href} aria-current={current(s.href) ? 'page' : undefined}>
             <s.icon aria-hidden="true" />

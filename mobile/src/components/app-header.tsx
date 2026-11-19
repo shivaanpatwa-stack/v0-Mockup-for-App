@@ -2,23 +2,17 @@ import { ArrowLeftRight, User } from 'lucide-react-native'
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { colors } from '@/constants'
-import { API_URL } from '@/lib/config'
 import { formatHospitalName } from '@/lib/format'
 import { useFleet } from '@/state/fleet'
 
 export function ProfileButton() {
-  const { unit, hospitalName, hospitalCode } = useFleet()
+  const { hospitalName, hospitalCode } = useFleet()
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel="Profile"
       style={styles.profile}
-      onPress={() =>
-        Alert.alert(
-          unit ? `Unit ${unit.call_sign}` : 'Not signed in to a unit',
-          `${formatHospitalName(hospitalName)}${hospitalCode ? ` (${hospitalCode})` : ''}\nServer: ${API_URL}`,
-        )
-      }>
+      onPress={() => Alert.alert(formatHospitalName(hospitalName) || 'Hospital', hospitalCode ?? 'No hospital code')}>
       <User size={20} color={colors.white} />
     </Pressable>
   )
