@@ -76,17 +76,19 @@ export default function Landing() {
 
       <main>
         <section className="band" aria-labelledby="lead">
-          <CityBand />
-          <div className="band-text">
-            <h1 id="lead" className="lead-title">Ambulances in the right place before the call comes in</h1>
-            <p className="lead-sub">
-              In a simulated evening at Parel, staging 3 units by ward demand cut the average response from {k.avg_response_min.before.toFixed(1)} to{' '}
-              {k.avg_response_min.after.toFixed(1)} minutes.
-            </p>
-            <div className="band-actions">
-              <Link href="/app" className="btn btn-primary">Open the live map</Link>
-              <a href="#impact" className="btn">See the Parel simulation</a>
+          <div className="band-inner">
+            <div className="band-text">
+              <h1 id="lead" className="lead-title">Ambulances in the right place before the call comes in</h1>
+              <p className="lead-sub">
+                In a simulated evening at Parel, staging 3 units by ward demand cut the average response from {k.avg_response_min.before.toFixed(1)} to{' '}
+                {k.avg_response_min.after.toFixed(1)} minutes.
+              </p>
+              <div className="band-actions">
+                <Link href="/app" className="btn btn-primary">Open the live map</Link>
+                <a href="#impact" className="btn">See the Parel simulation</a>
+              </div>
             </div>
+            <CityBand kpis={k} hospitalLabel="3 units at Parel" />
           </div>
         </section>
 

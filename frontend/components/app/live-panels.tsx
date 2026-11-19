@@ -61,7 +61,7 @@ export function KpiStrip({ kpis, coverageKnown, uncovered, max }: { kpis: Kpis |
   }, [sig])
   const cls = `kpi${flash ? ' kpi-flash' : ''}`
   return (
-    <section className="kpi-strip" aria-label="Plan summary">
+    <section className="kpi-strip" aria-label="Plan summary" data-tour="kpis">
       <div className={cls}>
         <span className="kpi-label">Avg response</span>
         <span className="kpi-value">
@@ -158,13 +158,14 @@ export function RecalcControl() {
           onClick={recalculate}
           disabled={running || pendingApply || !hospital || noUnits}
           aria-keyshortcuts="R"
+          data-tour="recalc"
           aria-describedby="recalc-status"
         >
           {running ? <Loader2 className="spin" aria-hidden="true" /> : <RefreshCw aria-hidden="true" />}
           {running ? 'Calculating' : 'Recalculate staging'}
           {!running && <kbd aria-hidden="true" style={{ color: 'inherit', borderColor: 'rgba(255,255,255,.4)' }}>R</kbd>}
         </button>
-        <button type="button" className="btn" aria-pressed={whatIfOpen} onClick={() => setWhatIfOpen(!whatIfOpen)} aria-keyshortcuts="W">
+        <button type="button" className="btn" aria-pressed={whatIfOpen} onClick={() => setWhatIfOpen(!whatIfOpen)} aria-keyshortcuts="W" data-tour="what-if">
           <SlidersHorizontal aria-hidden="true" /> What if… <kbd aria-hidden="true">W</kbd>
         </button>
         {plan && !running && recalcStatus === 'idle' && (
@@ -368,7 +369,7 @@ export function MovesPanel({ hot, onHover }: { hot: string | null; onHover: (id:
 
   if (!movesOpen) {
     return (
-      <aside className="moves is-collapsed" aria-label="Moves">
+      <aside className="moves is-collapsed" aria-label="Moves" data-tour="moves">
         <button type="button" className="btn btn-icon btn-ghost" onClick={() => setMovesOpen(true)} aria-label="Show moves" style={{ margin: 4 }}>
           <ChevronLeft aria-hidden="true" />
         </button>
@@ -376,7 +377,7 @@ export function MovesPanel({ hot, onHover }: { hot: string | null; onHover: (id:
     )
   }
   return (
-    <aside className="moves" aria-labelledby="moves-title">
+    <aside className="moves" aria-labelledby="moves-title" data-tour="moves">
       <div className="moves-head">
         <h2 id="moves-title">
           {showingPreview ? 'Proposed moves' : 'Moves'} <span className="muted mono">{moves.length}</span>
@@ -456,7 +457,7 @@ export function TimeScrubber() {
     return () => window.removeEventListener('keydown', onKey)
   }, [hour, setHour])
   return (
-    <div className="scrubber" role="group" aria-label="Time of day">
+    <div className="scrubber" role="group" aria-label="Time of day" data-tour="time">
       <button type="button" className="btn btn-icon" onClick={() => setPlaying(!playing)} aria-label={playing ? 'Pause' : 'Play through the day'}>
         {playing ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
       </button>
@@ -518,7 +519,7 @@ export function LayerToggles() {
   const targetMin = plan?.max_response_minutes ?? 20
   const toggle = (k: keyof typeof layers) => setLayers({ ...layers, [k]: !layers[k] })
   return (
-    <div className="map-side-controls">
+    <div className="map-side-controls" data-tour="layers">
       <fieldset className="layer-toggles" style={{ margin: 0, padding: 0 }}>
         <legend className="sr-only">Map layers</legend>
         <label><input type="checkbox" checked={layers.demand} onChange={() => toggle('demand')} /> Demand</label>
