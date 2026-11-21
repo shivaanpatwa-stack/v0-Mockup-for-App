@@ -5,17 +5,41 @@ import { APP_NAME } from '@/lib/config'
 
 export const metadata: Metadata = { title: 'Meet the team' }
 
-type Member = { name: string; role: string; note: string; photo?: string; link?: { label: string; href: string } }
+type Member = {
+  name: string
+  role: string
+  bio: string[]
+  email: string
+  photo: string
+  /** CSS object-position so the face stays in frame when the photo is cropped to the card. */
+  focus: string
+}
 
-// Filled in from the team's own details. Placeholders are marked so they're easy to spot.
 const TEAM: Member[] = [
-  { name: '[Name]', role: '[Role]', note: '[One line: what you built or own]' },
-  { name: '[Name]', role: '[Role]', note: '[One line: what you built or own]' },
-  { name: '[Name]', role: '[Role]', note: '[One line: what you built or own]' },
+  {
+    name: 'Shivaan Patwa',
+    role: 'Frontend and backend',
+    bio: [
+      'Alongside Aayan, I co-built Standby, and we split the frontend and backend work roughly half and half.',
+      'On the backend, I built the planner API and the database that store each hospital, its fleet and every plan, the response-time and coverage numbers the dashboard shows, and the place search hospitals use to find themselves on the map. I also led security: hospital codes are stored encrypted, sign-ins are rate-limited and key actions are logged.',
+      'On the web, I redesigned the dashboard, including the live map, the staging plan, What-if scenarios, run history and the Data & assumptions page, and built this website, along with the Standby name and logo.',
+    ],
+    email: 'shivaanpatwa@gmail.com',
+    photo: '/team/shivaan.jpg',
+    focus: '40% 30%',
+  },
+  {
+    name: 'Aayan Nanavaty',
+    role: 'Frontend and backend',
+    bio: [
+      "Alongside Shivaan, I co-built Standby. I got interested in the problem when I realised that response times aren't just about how fast an ambulance can drive, but where it's waiting before the call comes in.",
+      "My work included the interactive map of Mumbai that shades every ward by predicted demand, and the hospital sign-up flow where hospitals place themselves on the map and add their fleet. I also built the planning features that assign each ambulance to a waiting spot, the mobile app crews use to see where to go and update their status, and the guided tour with demo videos that walks new users through the dashboard.",
+    ],
+    email: 'aayan.nanavaty@gmail.com',
+    photo: '/team/aayan.jpg',
+    focus: '50% 20%',
+  },
 ]
-
-const initials = (name: string) =>
-  name.startsWith('[') ? '?' : name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase()
 
 export default function TeamPage() {
   return (
@@ -29,32 +53,41 @@ export default function TeamPage() {
       </header>
       <main className="story">
         <section className="story-block" aria-labelledby="team-title">
-          <h1 id="team-title" style={{ fontSize: 32, lineHeight: 1.1 }}>Meet the team</h1>
+          <h1 id="team-title" className="team-title">
+            Meet the team
+          </h1>
           <div className="story-text">
-            <p className="gap-marker" style={{ display: 'block', padding: 12 }}>
-              [Why we built {APP_NAME}: 2 to 3 sentences in your own words]
+            <p>
+              In Mumbai, ambulances usually wait at a hospital or depot between calls, while emergencies move across the city through
+              the day. {APP_NAME} estimates where demand is likely to be highest in each of the city&apos;s 24 wards, hour by hour, and
+              recommends where each ambulance should wait. In our simulation of an evening at Parel, that cut the average response
+              time from 29 to about 20 minutes. Our goal is simple: the right ambulance in the right place at the right time.
             </p>
+            <p className="team-note">Built by two students in Mumbai, with guidance from our supervisor.</p>
             <ul className="team-grid">
-              {TEAM.map((m, i) => (
-                <li key={i} className="team-member">
-                  {m.photo ? (
-                    // eslint-disable-next-line @next/next/no-img-element -- small local photo
-                    <img src={m.photo} alt="" width={72} height={72} className="team-photo" />
-                  ) : (
-                    <span className="team-photo team-initials" aria-hidden="true">{initials(m.name)}</span>
-                  )}
+              {TEAM.map((m) => (
+                <li key={m.name} className="team-member">
+                  {/* eslint-disable-next-line @next/next/no-img-element -- local team photo */}
+                  <img
+                    src={m.photo}
+                    alt={`Photo of ${m.name}`}
+                    className="team-photo"
+                    style={{ objectPosition: m.focus }}
+                    loading="lazy"
+                  />
                   <div>
                     <strong>{m.name}</strong>
-                    <div className="muted">{m.role}</div>
-                    <p>{m.note}</p>
-                    {m.link && <a href={m.link.href}>{m.link.label}</a>}
+                    <div className="team-role">{m.role}</div>
+                    {m.bio.map((para, i) => (
+                      <p key={i}>{para}</p>
+                    ))}
+                    <p>
+                      <a href={`mailto:${m.email}`}>{m.email}</a>
+                    </p>
                   </div>
                 </li>
               ))}
             </ul>
-            <p>
-              Contact: <span className="gap-marker">[email]</span>
-            </p>
           </div>
         </section>
       </main>
