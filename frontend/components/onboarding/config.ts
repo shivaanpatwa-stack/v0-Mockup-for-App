@@ -21,13 +21,14 @@ export const VIDEO_STEPS: VideoStep[] = [
       'One click re-plans where every available ambulance should wait, using the predicted demand for the hour you pick. Review the proposed moves, then apply the plan or discard it.',
     src: '/onboarding/recalculate.mp4',
   },
-  {
+  // Re-enable once public/onboarding/what-if.mp4 is recorded (see README.md); without the file the step spins forever.
+  /* {
     id: 'what-if',
     title: 'Try a What if…',
     description:
       'Change the conditions, such as a monsoon evening, fewer units or a closed staging position, and see how the plan and response times would change before you commit to anything.',
     src: '/onboarding/what-if.mp4',
-  },
+  }, */
 ]
 
 export type Placement = 'top' | 'bottom' | 'left' | 'right'

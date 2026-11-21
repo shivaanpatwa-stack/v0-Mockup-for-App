@@ -7,15 +7,30 @@ export const metadata: Metadata = { title: 'Meet the team' }
 
 type Member = { name: string; role: string; note: string; photo?: string; link?: { label: string; href: string } }
 
-// Filled in from the team's own details. Placeholders are marked so they're easy to spot.
 const TEAM: Member[] = [
-  { name: '[Name]', role: '[Role]', note: '[One line: what you built or own]' },
-  { name: '[Name]', role: '[Role]', note: '[One line: what you built or own]' },
-  { name: '[Name]', role: '[Role]', note: '[One line: what you built or own]' },
+  {
+    name: 'Shivaan Patwa',
+    role: 'Backend, security and web design',
+    note: 'Built the planner API and database, the security work, and the web dashboard and site.',
+  },
+  {
+    name: 'Aayan Nanavaty',
+    role: 'Driver app and dispatch',
+    note: 'Built the driver mobile app, hospital registration and the algorithm that matches units to positions.',
+  },
 ]
 
+// Add 2 to 3 sentences on why you built it, and a contact email, then set these (they stay hidden while empty).
+const WHY = ''
+const CONTACT_EMAIL = ''
+
 const initials = (name: string) =>
-  name.startsWith('[') ? '?' : name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase()
+  name
+    .split(' ')
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase()
 
 export default function TeamPage() {
   return (
@@ -29,32 +44,36 @@ export default function TeamPage() {
       </header>
       <main className="story">
         <section className="story-block" aria-labelledby="team-title">
-          <h1 id="team-title" style={{ fontSize: 32, lineHeight: 1.1 }}>Meet the team</h1>
+          <h1 id="team-title" className="team-title">
+            Meet the team
+          </h1>
           <div className="story-text">
-            <p className="gap-marker" style={{ display: 'block', padding: 12 }}>
-              [Why we built {APP_NAME}: 2 to 3 sentences in your own words]
-            </p>
+            <p>{WHY || `${APP_NAME} is built by two students in Mumbai, with guidance from our supervisor.`}</p>
             <ul className="team-grid">
-              {TEAM.map((m, i) => (
-                <li key={i} className="team-member">
+              {TEAM.map((m) => (
+                <li key={m.name} className="team-member">
                   {m.photo ? (
                     // eslint-disable-next-line @next/next/no-img-element -- small local photo
                     <img src={m.photo} alt="" width={72} height={72} className="team-photo" />
                   ) : (
-                    <span className="team-photo team-initials" aria-hidden="true">{initials(m.name)}</span>
+                    <span className="team-photo team-initials" aria-hidden="true">
+                      {initials(m.name)}
+                    </span>
                   )}
                   <div>
                     <strong>{m.name}</strong>
-                    <div className="muted">{m.role}</div>
+                    <div className="team-role">{m.role}</div>
                     <p>{m.note}</p>
                     {m.link && <a href={m.link.href}>{m.link.label}</a>}
                   </div>
                 </li>
               ))}
             </ul>
-            <p>
-              Contact: <span className="gap-marker">[email]</span>
-            </p>
+            {CONTACT_EMAIL && (
+              <p>
+                Contact: <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
+              </p>
+            )}
           </div>
         </section>
       </main>

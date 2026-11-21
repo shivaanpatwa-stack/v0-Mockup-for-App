@@ -2117,6 +2117,8 @@ input[type='range'].range::-moz-range-thumb {
 }
 .loc-search {
   position: relative;
+  /* Above the picker map's zoom buttons (Leaflet controls sit at z-index 1000). */
+  z-index: 1100;
 }
 .loc-search-field {
   position: relative;
@@ -2867,4 +2869,85 @@ input[type='range'].range::-moz-range-thumb {
   .onb-spot {
     transition: none;
   }
+}
+
+/* ---------- Meet the team ---------- */
+.landing {
+  /* Short pages (team) shouldn't leave the dark page background showing below the footer. */
+  min-height: 100vh;
+}
+.team-title {
+  font-size: 32px;
+  line-height: 1.1;
+}
+.team-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--s-5);
+  margin: var(--s-5) 0;
+  padding: 0;
+  list-style: none;
+}
+.team-member {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-4);
+}
+.team-member p {
+  margin: var(--s-1) 0 0;
+}
+.team-role {
+  color: var(--ink-muted);
+  font-size: var(--fs-14);
+}
+.team-photo {
+  flex: none;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.team-initials {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--brand, #2f7d5b);
+  color: #fff;
+  font: 600 22px / 1 var(--font-display, inherit);
+}
+
+/* Phone: keep the map buttons on one row (scrolls sideways if needed) so a wrapped
+   "Cancel plan" no longer sits underneath the time slider. */
+@media (max-width: 600px) {
+  .map-toolbar-row {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .map-toolbar-row::-webkit-scrollbar {
+    display: none;
+  }
+  .map-toolbar-row .btn {
+    flex: none;
+    padding-inline: 10px;
+    font-size: var(--fs-13);
+  }
+}
+
+/* Home page: the header sits on the dark hero band, so it is dark too (it was a light strip on phones). */
+.landing-nav.on-dark {
+  max-width: none;
+  margin: 0;
+  padding-inline: max(var(--s-5), calc((100% - 1200px) / 2 + var(--s-5)));
+  background: #111413;
+  color: #f3f4f1;
+}
+.landing-nav.on-dark .links a {
+  color: rgba(243, 244, 241, 0.72);
+}
+.landing-nav.on-dark .links a:hover {
+  color: #f3f4f1;
+}
+.landing-nav.on-dark .wordmark {
+  color: #f3f4f1;
 }
