@@ -2890,8 +2890,8 @@ input[type='range'].range::-moz-range-thumb {
 }
 .team-member {
   display: flex;
-  align-items: flex-start;
-  gap: var(--s-4);
+  flex-direction: column;
+  gap: var(--s-3);
 }
 .team-member p {
   margin: var(--s-1) 0 0;
@@ -2901,11 +2901,13 @@ input[type='range'].range::-moz-range-thumb {
   font-size: var(--fs-14);
 }
 .team-photo {
-  flex: none;
-  width: 72px;
-  height: 72px;
-  border-radius: 50%;
+  display: flex;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 4 / 3;
+  border-radius: 12px;
   object-fit: cover;
+  object-position: 40% 30%;
 }
 .team-initials {
   display: inline-flex;
@@ -2913,7 +2915,7 @@ input[type='range'].range::-moz-range-thumb {
   justify-content: center;
   background: var(--brand, #2f7d5b);
   color: #fff;
-  font: 600 22px / 1 var(--font-display, inherit);
+  font: 600 40px / 1 var(--font-display, inherit);
 }
 
 /* Phone: keep the map buttons on one row (scrolls sideways if needed) so a wrapped

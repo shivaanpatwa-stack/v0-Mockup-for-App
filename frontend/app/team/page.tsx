@@ -10,8 +10,9 @@ type Member = { name: string; role: string; note: string; photo?: string; link?:
 const TEAM: Member[] = [
   {
     name: 'Shivaan Patwa',
-    role: 'Backend, security and web design',
-    note: 'Built the planner API and database, the security work, and the web dashboard and site.',
+    role: 'Frontend and backend',
+    note: 'Split the frontend and backend work half and half with Aayan, and also led security and the Standby design.',
+    photo: '/team/shivaan.jpg',
   },
   {
     name: 'Aayan Nanavaty',
@@ -53,8 +54,8 @@ export default function TeamPage() {
               {TEAM.map((m) => (
                 <li key={m.name} className="team-member">
                   {m.photo ? (
-                    // eslint-disable-next-line @next/next/no-img-element -- small local photo
-                    <img src={m.photo} alt="" width={72} height={72} className="team-photo" />
+                    // eslint-disable-next-line @next/next/no-img-element -- local team photo
+                    <img src={m.photo} alt={`${m.name} presenting`} width={1200} height={860} className="team-photo" />
                   ) : (
                     <span className="team-photo team-initials" aria-hidden="true">
                       {initials(m.name)}
