@@ -420,6 +420,15 @@ def _hospital_payload(hospital, fleet) -> dict:
         "ambulances": [
             {"id": a.call_sign, "type": a.type.value, "status": a.current_status.value} for a in fleet
         ],
+        "onboarding": _onboarding_payload(hospital),
+    }
+
+
+def _onboarding_payload(hospital) -> dict:
+    return {
+        "status": hospital.onboarding_status,
+        "completed_at": hospital.onboarding_completed_at,
+        "version": hospital.onboarding_version,
     }
 
 
@@ -702,6 +711,12 @@ class HospitalUpdate(BaseModel):
     operating_radius_km: Optional[float] = Field(default=None, gt=0, le=50)
 
 
+class OnboardingUpdate(BaseModel):
+    # Finishing and skipping the first-run tour are both saved, so neither shows it again.
+    status: Literal["completed", "skipped"]
+    version: int = Field(ge=1, le=1000)
+
+
 class HospitalRegistration(BaseModel):
     hospital_name: str = Field(min_length=2, max_length=100)
     # SEC-01: only inside Greater Mumbai (422 otherwise).
@@ -788,6 +803,21 @@ def update_hospital(changes: HospitalUpdate, hospital=Depends(require_admin), db
         db.rollback()
         raise _db_unavailable(exc)
     return _hospital_payload(hospital, fleet)
+
+
+@app.patch("/hospital/onboarding")
+def update_onboarding(update_in: OnboardingUpdate, hospital=Depends(require_admin), db: Session = Depends(get_db)):
+    """Record that this hospital's dashboard users finished or skipped the first-run tour. Admin level: the
+    tour is shown on the web dashboard, which signs in with the admin key. Safe to repeat."""
+    hospital.onboarding_status = update_in.status
+    hospital.onboarding_version = update_in.version
+    hospital.onboarding_completed_at = datetime.now(timezone.utc)
+    try:
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise _db_unavailable(exc)
+    return _onboarding_payload(hospital)
 
 
 @app.post("/hospital/ambulances", status_code=201)

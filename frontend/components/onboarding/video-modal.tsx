@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight, Film, Loader2, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Film, Loader2 } from 'lucide-react'
 import { APP_NAME } from '@/lib/config'
 import { VIDEO_STEPS, type VideoStep } from './config'
 import { useDialogKeys } from './use-dialog-keys'
@@ -81,17 +81,14 @@ export default function VideoModal({
   return (
     <div className="onb-backdrop">
       <div ref={ref} className="onb-modal" role="dialog" aria-modal="true" aria-labelledby="onb-video-title" tabIndex={-1}>
-        <div className="onb-head">
-          <span className="onb-eyebrow">Welcome to {APP_NAME}</span>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={onSkip}>
-            Skip <X aria-hidden="true" />
-          </button>
-        </div>
+        <span className="onb-eyebrow">Welcome to {APP_NAME}</span>
 
         <Demo key={step.id} step={step} />
 
-        <h2 id="onb-video-title" className="onb-title">{step.title}</h2>
-        <p className="onb-body">{step.description}</p>
+        <div key={`text-${step.id}`} className="onb-step-text">
+          <h2 id="onb-video-title" className="onb-title">{step.title}</h2>
+          <p className="onb-body">{step.description}</p>
+        </div>
 
         <div className="onb-foot">
           <span className="onb-count" aria-live="polite">
@@ -103,6 +100,9 @@ export default function VideoModal({
             ))}
           </div>
           <div className="onb-actions">
+            <button type="button" className="btn btn-ghost" onClick={onSkip}>
+              Skip tour
+            </button>
             <button type="button" className="btn" onClick={prev} disabled={index === 0}>
               <ArrowLeft aria-hidden="true" /> Back
             </button>

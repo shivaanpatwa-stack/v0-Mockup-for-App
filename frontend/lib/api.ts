@@ -140,6 +140,13 @@ export type Hospital = {
   operating_radius_km: number
   fleet_size: number
   ambulances: { id: string; type: 'ALS' | 'BLS'; status: AmbulanceStatus }[]
+  /** First-run tour status. Absent when talking to a backend that predates it. */
+  onboarding?: { status: 'completed' | 'skipped' | null; completed_at: string | null; version: number | null }
+}
+
+/** Remember that this hospital finished or skipped the first-run tour (admin level; safe to repeat). */
+export async function saveOnboarding(status: 'completed' | 'skipped', version: number): Promise<void> {
+  await sendJson('PATCH', '/hospital/onboarding', { status, version }, 'Saving the tour status failed')
 }
 
 /** The signed-in hospital. Throws ApiError on server errors (and signs out on invalid credentials). */

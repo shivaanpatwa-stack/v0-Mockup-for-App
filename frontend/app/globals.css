@@ -2704,6 +2704,8 @@ input[type='range'].range::-moz-range-thumb {
 .onb-media {
   position: relative;
   aspect-ratio: 16 / 9;
+  /* A tall (portrait) recording letterboxes inside this cap instead of pushing the buttons off screen. */
+  max-height: min(56vh, 480px);
   overflow: hidden;
   border: 1px solid var(--hairline);
   border-radius: var(--r-sm);
@@ -2753,7 +2755,32 @@ input[type='range'].range::-moz-range-thumb {
 }
 .onb-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--s-2);
+}
+.onb-step-text {
+  display: grid;
+  gap: var(--s-2);
+}
+@keyframes onb-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes onb-fade {
+  from {
+    opacity: 0;
+  }
+}
+.onb-backdrop,
+.onb-dim {
+  animation: onb-fade 0.2s var(--ease-out);
+}
+.onb-modal,
+.onb-tip,
+.onb-step-text {
+  animation: onb-in 0.22s var(--ease-out);
 }
 .onb-actions-end {
   justify-content: flex-end;
@@ -2828,5 +2855,12 @@ input[type='range'].range::-moz-range-thumb {
 @media (prefers-reduced-motion: reduce) {
   .onb-spot {
     transition: none;
+  }
+  .onb-backdrop,
+  .onb-dim,
+  .onb-modal,
+  .onb-tip,
+  .onb-step-text {
+    animation: none;
   }
 }
