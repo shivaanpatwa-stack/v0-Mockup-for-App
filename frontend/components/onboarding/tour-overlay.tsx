@@ -68,10 +68,7 @@ export default function TourOverlay({
       const n = index + delta
       if (n >= TOUR_STEPS.length) onFinish()
       else if (n < 0) onBackToVideos()
-      else {
-        setBox(null)
-        setIndex(n)
-      }
+      else setIndex(n)
     },
     [index, onFinish, onBackToVideos],
   )
@@ -96,6 +93,9 @@ export default function TourOverlay({
           el.scrollIntoView({ block: 'center', inline: 'center', behavior: smooth ? 'smooth' : 'auto' })
         }
       }
+      // Not found straight away (still rendering, or not on this screen): drop the old spotlight so it never sits on
+      // the previous step's element while this step's text is showing.
+      if (!el && !found && performance.now() - started > 150) setBox((b) => (b === null ? b : null))
       if (!el && !found && performance.now() - started > FIND_TIMEOUT_MS) {
         // Not on this screen (hidden at this width, or never rendered): skip the step in the direction of travel.
         if (direction.current === 1) next()
@@ -157,8 +157,10 @@ export default function TourOverlay({
             Skip tour
           </button>
         </div>
-        <h2 id="onb-tip-title" className="onb-title">{step.title}</h2>
-        <p className="onb-body">{step.body}</p>
+        <div key={step.id} className="onb-step-text">
+          <h2 id="onb-tip-title" className="onb-title">{step.title}</h2>
+          <p className="onb-body">{step.body}</p>
+        </div>
         <div className="onb-actions onb-actions-end">
           <button type="button" className="btn" onClick={prev}>
             <ArrowLeft aria-hidden="true" /> Back

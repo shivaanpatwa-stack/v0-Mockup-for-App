@@ -3,6 +3,11 @@
  * no component needs to change.
  */
 
+/**
+ * Bump this to show a redesigned tour to everyone again: a hospital that saw an older version is treated as new.
+ */
+export const ONBOARDING_VERSION = 1
+
 export type VideoStep = {
   id: string
   title: string
@@ -118,7 +123,7 @@ export const TOUR_STEPS: TourStep[] = [
 
 export const COMPLETION = {
   title: "You're all set",
-  body: 'That covers the essentials. Recalculate staging to place your units, then try a What if… to see how a different day would play out.',
+  body: 'Thanks for taking the tour. Recalculate staging to place your units, then try a What if… to see how a different day would play out.',
   hint: 'Replay this tour any time from the hospital menu or the command palette.',
   action: 'Get Started',
 }

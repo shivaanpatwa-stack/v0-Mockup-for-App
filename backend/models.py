@@ -89,6 +89,11 @@ class Hospital(Base):
     # HMAC-SHA256(KEY_PEPPER, admin key) as hex; the key itself is never stored (see credentials.py).
     # Empty until scripts/backfill_keys.py has run for hospitals registered before hashing.
     admin_key_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # First-run product tour. NULL status = not seen yet (every existing hospital); otherwise "completed" or
+    # "skipped". onboarding_version is the tour version that was seen, so a redesigned tour can be shown again.
+    onboarding_status: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    onboarding_completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    onboarding_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     ambulances: Mapped[List["Ambulance"]] = relationship(back_populates="hospital")
     drivers: Mapped[List["Driver"]] = relationship(back_populates="hospital")

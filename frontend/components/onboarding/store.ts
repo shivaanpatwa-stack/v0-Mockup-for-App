@@ -1,41 +1,44 @@
-import { useSyncExternalStore } from 'react'
+import { useCallback, useSyncExternalStore } from 'react'
+import { ONBOARDING_VERSION } from './config'
 
 /**
- * Whether this browser has already seen the onboarding. Stored per browser in localStorage under a versioned key:
- * bump `VERSION` to show a redesigned tour to everyone again.
+ * Per-browser copy of "this hospital has seen the onboarding". The database (hospitals.onboarding_*) is the source
+ * of truth and is what keeps the answer the same on every device; this copy covers the gaps: the backend not
+ * updated yet, or a save that failed (it is retried on the next load). Keyed by hospital so one browser used for
+ * several hospitals never mixes them up.
  *
- * 'unknown' is only ever returned while rendering on the server (and the first client render), so nothing
- * flashes before the real value is read.
+ * 'unknown' is only returned on the server, on the first client render, and until the hospital is known, so
+ * nothing flashes before the real value is read.
  */
 export type OnboardingStatus = 'unknown' | 'new' | 'completed' | 'skipped'
 
-const VERSION = 1
-const KEY = `onboarding:v${VERSION}`
+const keyFor = (hospitalId: number) => `onboarding:v${ONBOARDING_VERSION}:${hospitalId}`
 
 const listeners = new Set<() => void>()
 // Used when localStorage is blocked (private mode, disabled storage) so the tour still shows only once per page load.
-let memory: OnboardingStatus | null = null
+const memory = new Map<number, 'completed' | 'skipped'>()
 
-function read(): OnboardingStatus {
-  if (memory) return memory
+function read(hospitalId: number): OnboardingStatus {
+  const remembered = memory.get(hospitalId)
+  if (remembered) return remembered
   try {
-    const raw = window.localStorage.getItem(KEY)
+    const raw = window.localStorage.getItem(keyFor(hospitalId))
     if (!raw) return 'new'
     const parsed = JSON.parse(raw) as { version?: number; status?: string }
-    if (parsed.version === VERSION && (parsed.status === 'completed' || parsed.status === 'skipped')) return parsed.status
+    if (parsed.version === ONBOARDING_VERSION && (parsed.status === 'completed' || parsed.status === 'skipped')) return parsed.status
   } catch {
     // Unreadable or corrupt value: treat as never seen.
   }
   return 'new'
 }
 
-/** Remember that the onboarding was finished or skipped. */
-export function saveOnboardingStatus(status: 'completed' | 'skipped') {
+/** Remember in this browser that the onboarding was finished or skipped. */
+export function saveOnboardingStatus(hospitalId: number, status: 'completed' | 'skipped') {
   try {
-    window.localStorage.setItem(KEY, JSON.stringify({ version: VERSION, status, at: new Date().toISOString() }))
-    memory = null
+    window.localStorage.setItem(keyFor(hospitalId), JSON.stringify({ version: ONBOARDING_VERSION, status, at: new Date().toISOString() }))
+    memory.delete(hospitalId)
   } catch {
-    memory = status
+    memory.set(hospitalId, status)
   }
   listeners.forEach((l) => l())
 }
@@ -44,7 +47,7 @@ function subscribe(onChange: () => void) {
   listeners.add(onChange)
   // Another tab finishing the tour should also stop it here.
   const onStorage = (e: StorageEvent) => {
-    if (e.key === KEY || e.key === null) onChange()
+    if (e.key === null || e.key.startsWith('onboarding:')) onChange()
   }
   window.addEventListener('storage', onStorage)
   return () => {
@@ -53,6 +56,7 @@ function subscribe(onChange: () => void) {
   }
 }
 
-export function useOnboardingStatus(): OnboardingStatus {
-  return useSyncExternalStore(subscribe, read, () => 'unknown')
+export function useOnboardingStatus(hospitalId: number | undefined): OnboardingStatus {
+  const getSnapshot = useCallback((): OnboardingStatus => (hospitalId === undefined ? 'unknown' : read(hospitalId)), [hospitalId])
+  return useSyncExternalStore(subscribe, getSnapshot, () => 'unknown')
 }
