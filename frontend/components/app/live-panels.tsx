@@ -61,7 +61,7 @@ export function KpiStrip({ kpis, coverageKnown, uncovered, max }: { kpis: Kpis |
   }, [sig])
   const cls = `kpi${flash ? ' kpi-flash' : ''}`
   return (
-    <section className="kpi-strip" aria-label="Plan summary">
+    <section className="kpi-strip" aria-label="Plan summary" data-tour="kpis">
       <div className={cls}>
         <span className="kpi-label">Avg response</span>
         <span className="kpi-value">
@@ -158,13 +158,14 @@ export function RecalcControl() {
           onClick={recalculate}
           disabled={running || pendingApply || !hospital || noUnits}
           aria-keyshortcuts="R"
+          data-tour="recalc"
           aria-describedby="recalc-status"
         >
           {running ? <Loader2 className="spin" aria-hidden="true" /> : <RefreshCw aria-hidden="true" />}
           {running ? 'Calculating' : 'Recalculate staging'}
           {!running && <kbd aria-hidden="true" style={{ color: 'inherit', borderColor: 'rgba(255,255,255,.4)' }}>R</kbd>}
         </button>
-        <button type="button" className="btn" aria-pressed={whatIfOpen} onClick={() => setWhatIfOpen(!whatIfOpen)} aria-keyshortcuts="W">
+        <button type="button" className="btn" aria-pressed={whatIfOpen} onClick={() => setWhatIfOpen(!whatIfOpen)} aria-keyshortcuts="W" data-tour="what-if">
           <SlidersHorizontal aria-hidden="true" /> What if… <kbd aria-hidden="true">W</kbd>
         </button>
         {plan && !running && recalcStatus === 'idle' && (
@@ -260,10 +261,11 @@ export function RecalcControl() {
 const STATUS_TEXT: Record<string, string> = { planned: 'Staged (not dispatched)', en_route: 'Dispatched · On the way', in_position: 'In position' }
 
 function MoveRow({ m, hour, preview, onHover, hot }: { m: Move; hour: number; preview: boolean; onHover: (id: string | null) => void; hot: boolean }) {
-  const { pushToast, refreshFleet } = useApp()
+  const { pushToast, refreshFleet, fleet } = useApp()
   const [busy, setBusy] = useState(false)
   const scores = getBundledScoresForHour(hour)
   const score = m.toWard ? scores[m.toWard] : undefined
+  const unit = fleet?.find((f) => f.call_sign === m.callSign)
   const dispatch = async () => {
     setBusy(true)
     try {
@@ -281,9 +283,36 @@ function MoveRow({ m, hour, preview, onHover, hot }: { m: Move; hour: number; pr
       <div className="move-top">
         <span className="move-id">{m.callSign} <span className="muted">{m.type}</span></span>
         {!preview && (
-          <span className="status">
-            {(m.status ?? 'planned') === 'in_position' ? <Check aria-hidden="true" /> : <span className="dot" aria-hidden="true" />}
-            {STATUS_TEXT[m.status ?? 'planned'] ?? m.status}
+          <span
+            className={`status ${
+              unit?.status === 'responding'
+                ? 'status-responding'
+                : unit?.status === 'at_hospital'
+                  ? 'status-hospital'
+                  : 'status-available'
+            }`}
+          >
+            {unit?.status === 'responding' ? (
+              <>
+                <span className="dot" aria-hidden="true" />
+                Responding to a call
+              </>
+            ) : unit?.status === 'at_hospital' ? (
+              <>
+                <span className="dot" aria-hidden="true" />
+                At hospital
+              </>
+            ) : (m.status ?? 'planned') === 'in_position' ? (
+              <>
+                <Check aria-hidden="true" />
+                In position
+              </>
+            ) : (
+              <>
+                <span className="dot" aria-hidden="true" />
+                {STATUS_TEXT[m.status ?? 'planned'] ?? m.status}
+              </>
+            )}
           </span>
         )}
       </div>
@@ -340,7 +369,7 @@ export function MovesPanel({ hot, onHover }: { hot: string | null; onHover: (id:
 
   if (!movesOpen) {
     return (
-      <aside className="moves is-collapsed" aria-label="Moves">
+      <aside className="moves is-collapsed" aria-label="Moves" data-tour="moves">
         <button type="button" className="btn btn-icon btn-ghost" onClick={() => setMovesOpen(true)} aria-label="Show moves" style={{ margin: 4 }}>
           <ChevronLeft aria-hidden="true" />
         </button>
@@ -348,7 +377,7 @@ export function MovesPanel({ hot, onHover }: { hot: string | null; onHover: (id:
     )
   }
   return (
-    <aside className="moves" aria-labelledby="moves-title">
+    <aside className="moves" aria-labelledby="moves-title" data-tour="moves">
       <div className="moves-head">
         <h2 id="moves-title">
           {showingPreview ? 'Proposed moves' : 'Moves'} <span className="muted mono">{moves.length}</span>
@@ -428,7 +457,7 @@ export function TimeScrubber() {
     return () => window.removeEventListener('keydown', onKey)
   }, [hour, setHour])
   return (
-    <div className="scrubber" role="group" aria-label="Time of day">
+    <div className="scrubber" role="group" aria-label="Time of day" data-tour="time">
       <button type="button" className="btn btn-icon" onClick={() => setPlaying(!playing)} aria-label={playing ? 'Pause' : 'Play through the day'}>
         {playing ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
       </button>
@@ -490,7 +519,7 @@ export function LayerToggles() {
   const targetMin = plan?.max_response_minutes ?? 20
   const toggle = (k: keyof typeof layers) => setLayers({ ...layers, [k]: !layers[k] })
   return (
-    <div className="map-side-controls">
+    <div className="map-side-controls" data-tour="layers">
       <fieldset className="layer-toggles" style={{ margin: 0, padding: 0 }}>
         <legend className="sr-only">Map layers</legend>
         <label><input type="checkbox" checked={layers.demand} onChange={() => toggle('demand')} /> Demand</label>

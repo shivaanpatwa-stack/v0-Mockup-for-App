@@ -15,6 +15,16 @@ const level = (s: number) => (s < 0.2 ? 0 : s <= 0.46 ? 1 : s <= 0.7 ? 2 : 3)
 const BASE = { lat: 19.0176, lng: 72.8562 } // example hospital, Parel
 const HOUR_MS = 1500
 
+export type HeroKpis = {
+  avg_response_min: { before: number | null; after: number | null }
+  demand_within_20_min_pct: { before: number | null; after: number | null }
+  wards_covered_20_min: { before: number; after: number; total: number }
+}
+
+// Citywide predicted demand per hour (sum of the ward scores): the bars on the right of the hero.
+const HOURLY_DEMAND = Array.from({ length: 24 }, (_, h) => Object.values(WARD_HOUR_RISK_SCORES[h] ?? {}).reduce((s, v) => s + v, 0))
+const MAX_DEMAND = Math.max(...HOURLY_DEMAND, 1)
+
 function topWards(hour: number, n: number) {
   return Object.entries(WARD_HOUR_RISK_SCORES[hour] ?? {})
     .sort((a, b) => b[1] - a[1])
@@ -23,7 +33,7 @@ function topWards(hour: number, n: number) {
     .filter(Boolean)
 }
 
-export default function CityBand() {
+export default function CityBand({ kpis, hospitalLabel }: { kpis: HeroKpis; hospitalLabel: string }) {
   const ref = useRef<HTMLCanvasElement>(null)
   const [hour, setHour] = useState(18)
 
@@ -42,12 +52,12 @@ export default function CityBand() {
 
     const bounds = { minLat: 18.89, maxLat: 19.28, minLng: 72.77, maxLng: 72.99 }
     const project = (lng: number, lat: number, w: number, h: number) => {
-      // The city sits in the right ~55% of the band on wide screens, centred on narrow ones.
-      const areaW = w > 900 ? w * 0.5 : w * 0.9
-      const left = w > 900 ? w * 0.46 : w * 0.05
-      const scale = Math.min(areaW / (bounds.maxLng - bounds.minLng), (h * 0.9) / (bounds.maxLat - bounds.minLat))
-      const x = left + (lng - bounds.minLng) * scale
-      const y = h * 0.05 + (bounds.maxLat - lat) * scale
+      // The canvas is the middle column of the hero: fit the city inside it and centre it.
+      const spanLng = bounds.maxLng - bounds.minLng
+      const spanLat = bounds.maxLat - bounds.minLat
+      const scale = Math.min((w * 0.92) / spanLng, (h * 0.92) / spanLat)
+      const x = (w - spanLng * scale) / 2 + (lng - bounds.minLng) * scale
+      const y = (h - spanLat * scale) / 2 + (bounds.maxLat - lat) * scale
       return [x, y] as const
     }
 
@@ -142,9 +152,52 @@ export default function CityBand() {
     }
   }, [])
 
+  const avg = kpis.avg_response_min
+  const reach = kpis.demand_within_20_min_pct
+  const wardsCovered = kpis.wards_covered_20_min
+  const saved = avg.before != null && avg.after != null ? avg.before - avg.after : null
+
   return (
     <>
-      <canvas ref={ref} aria-hidden="true" />
+      <div className="band-map">
+        <canvas ref={ref} aria-hidden="true" />
+      </div>
+      <div className="band-stats">
+        <p className="band-stats-label">Simulated · {hospitalLabel}</p>
+        <div className="band-card">
+          <span className="band-card-label">Avg response</span>
+          <span className="band-card-row">
+            {avg.before != null && <s className="band-card-was">{avg.before.toFixed(1)}</s>}
+            <span aria-hidden="true" className="band-card-arrow">→</span>
+            <span className="band-card-big">{avg.after?.toFixed(1)}</span>
+            <span className="band-card-unit">min</span>
+            {saved != null && saved > 0 && <span className="band-card-gain">−{saved.toFixed(1)}</span>}
+          </span>
+        </div>
+        <div className="band-card-pair">
+          <div className="band-card">
+            <span className="band-card-label">Reachable in 20 min</span>
+            <span><span className="band-card-mid">{Math.round(reach.after ?? 0)}</span><span className="band-card-unit"> %</span></span>
+            <span className="band-card-gain">from {Math.round(reach.before ?? 0)}%</span>
+          </div>
+          <div className="band-card">
+            <span className="band-card-label">Wards covered</span>
+            <span><span className="band-card-mid">{wardsCovered.after}</span><span className="band-card-unit"> of {wardsCovered.total}</span></span>
+            <span className="band-card-gain">from {wardsCovered.before}</span>
+          </div>
+        </div>
+        <div className="band-card" aria-hidden="true">
+          <span className="band-card-label band-card-head">
+            Demand by hour <span className="hour">{String(hour).padStart(2, '0')}:00</span>
+          </span>
+          <span className="band-bars">
+            {HOURLY_DEMAND.map((v, h) => (
+              <span key={h} className={h === hour ? 'is-now' : undefined} style={{ height: `${Math.max(8, Math.round((v / MAX_DEMAND) * 100))}%` }} />
+            ))}
+          </span>
+          <span className="band-bars-axis"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></span>
+        </div>
+      </div>
       <p className="band-caption" aria-hidden="true">
         <span className="hour">{String(hour).padStart(2, '0')}:00</span>
         <span>Simulated demand by ward · units move toward the busiest wards (illustration)</span>
