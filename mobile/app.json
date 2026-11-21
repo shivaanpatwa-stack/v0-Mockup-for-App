@@ -9,6 +9,8 @@
     "userInterfaceStyle": "dark",
     "ios": {
       "icon": "./assets/images/icon.png",
+      "bundleIdentifier": "com.varad.ambulanceiq",
+      "buildNumber": "1",
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": false
@@ -16,6 +18,8 @@
       }
     },
     "android": {
+      "package": "com.varad.ambulanceiq",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#111413",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

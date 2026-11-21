@@ -19,3 +19,4 @@ function resolveApiUrl(): string {
 
 export const API_URL = resolveApiUrl()
 export const CARTO_API_KEY = process.env.EXPO_PUBLIC_CARTO_API_KEY?.trim() || undefined
+export const MAPTILER_API_KEY = process.env.EXPO_PUBLIC_MAPTILER_API_KEY?.trim() || ''

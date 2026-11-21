@@ -1,0 +1,34 @@
+{
+  "cli": {
+    "version": ">= 15.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://ambulance-optimization.onrender.com",
+        "EXPO_PUBLIC_MAPTILER_API_KEY": "MdQagm10D4jYnvqiImfB"
+      }
+    },
+    "production": {
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://ambulance-optimization.onrender.com",
+        "EXPO_PUBLIC_MAPTILER_API_KEY": "MdQagm10D4jYnvqiImfB"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}
