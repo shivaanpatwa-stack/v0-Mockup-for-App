@@ -2904,10 +2904,17 @@ input[type='range'].range::-moz-range-thumb {
   display: flex;
   width: 100%;
   height: auto;
-  aspect-ratio: 4 / 3;
+  max-width: 320px;
+  aspect-ratio: 4 / 5;
   border-radius: 12px;
   object-fit: cover;
-  object-position: 40% 30%;
+}
+.team-note {
+  color: var(--ink-muted);
+  font-size: var(--fs-14);
+}
+.team-member p + p {
+  margin-top: var(--s-2);
 }
 .team-initials {
   display: inline-flex;
