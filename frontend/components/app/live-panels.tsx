@@ -1,15 +1,17 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   ArrowDown,
   ArrowRight,
   ArrowUp,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Loader2,
   Pause,
   Play,
@@ -144,11 +146,28 @@ function diffSummary(next: OptimizeResult, current: OptimizeResult | null) {
 /** 3.6 A: Recalculate staging, with idle, stale, running, result, applied (toast) and error states. */
 export function RecalcControl() {
   const {
-    plan, hospital, recalcStatus, recalcError, recalcStartedAt, preview, recalculate, applyPreview, discardPreview,
+    plan, hospital, fleet, recalcStatus, recalcError, recalcStartedAt, preview, recalculate, applyPreview, discardPreview,
     cancelPlan, pendingApply, stale, whatIfOpen, setWhatIfOpen, setMovesOpen, inService,
   } = useApp()
   const running = recalcStatus === 'running'
   const noUnits = hospital !== undefined && inService.length === 0
+  const [reviewOpen, setReviewOpen] = useState(false)
+
+  // Reset review open when preview changes or is cleared
+  useEffect(() => {
+    setReviewOpen(false)
+  }, [preview])
+
+  const previewMoves = useMemo(() => {
+    if (!preview) return []
+    const result = preview.result as OptimizeResult
+    if (!result?.assignments) return []
+    return movesFor(result.assignments, fleet, hospital, plan?.assignments)
+  }, [preview, fleet, hospital, plan])
+
+  const movingCount = useMemo(() => {
+    return previewMoves.filter((m) => m.fromLabel !== m.toLabel).length
+  }, [previewMoves])
   return (
     <div className="map-toolbar">
       <div className="map-toolbar-row">
@@ -235,20 +254,61 @@ export function RecalcControl() {
               {preview.result.assumptions.map((a) => <li key={a}>{a}</li>)}
             </ul>
           )}
+          {reviewOpen && (
+            <div className="preview-moves-accordion">
+              <div className="preview-moves-header">
+                <span className="muted" style={{ fontSize: 12 }}>
+                  Proposed movements ({movingCount} moving of {previewMoves.length} total)
+                </span>
+              </div>
+              <ul className="preview-moves-list">
+                {previewMoves.map((m) => {
+                  const isMoving = m.fromLabel !== m.toLabel
+                  return (
+                    <li key={m.callSign} className={`preview-move-item${isMoving ? ' is-moving' : ' is-stationary'}`}>
+                      <div className="preview-move-top">
+                        <div className="preview-unit-badge">
+                          <span className="preview-callsign">{m.callSign}</span>
+                          <span className={`preview-type-chip ${m.type === 'BLS' ? 'is-bls' : 'is-als'}`}>{m.type}</span>
+                        </div>
+                        <span className={`preview-movement-tag ${isMoving ? 'is-moving' : 'is-stationary'}`}>
+                          {isMoving ? 'Moving' : 'Stays in place'}
+                        </span>
+                      </div>
+                      <div className="preview-move-route">
+                        <span className="preview-from" title={m.fromLabel}>{m.fromLabel}</span>
+                        <ArrowRight size={12} className="preview-arrow" aria-hidden="true" />
+                        <span className="preview-to" title={m.toLabel}>{m.toLabel}</span>
+                        {m.km != null && isMoving && (
+                          <span className="preview-km"> · {m.km.toFixed(1)} km</span>
+                        )}
+                      </div>
+                      {m.toWard && (
+                        <div className="preview-ward-row">
+                          <span className="preview-ward-pill">Ward {m.toWard}</span>
+                          {WARD_NAMES[m.toWard] && (
+                            <span className="preview-ward-name">({WARD_NAMES[m.toWard]})</span>
+                          )}
+                        </div>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          )}
           <div className="result-actions">
             <button type="button" className="btn btn-primary" onClick={applyPreview}>
               <Check aria-hidden="true" /> Apply plan
             </button>
             <button
               type="button"
-              className="btn"
-              onClick={() => {
-                setMovesOpen(true)
-                const el = document.getElementById('moves-title')
-                el?.scrollIntoView({ behavior: 'smooth' })
-              }}
+              className={`btn${reviewOpen ? ' btn-active' : ''}`}
+              onClick={() => setReviewOpen((prev) => !prev)}
+              aria-expanded={reviewOpen}
             >
-              Review moves
+              {reviewOpen ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
+              {reviewOpen ? 'Hide moves' : 'Review moves'}
             </button>
             <button type="button" className="btn btn-ghost" onClick={discardPreview}>Discard</button>
           </div>

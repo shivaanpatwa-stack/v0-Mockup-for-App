@@ -234,16 +234,52 @@ export default function RunHistoryPage() {
               <ul className="assumption-list">{open.scenario_parameters.assumptions.map((a) => <li key={a}>{a}</li>)}</ul>
             )}
             {detail && (
-              <div className="table-wrap">
-                <table className="table">
-                  <caption className="sr-only">Positions in this run</caption>
-                  <thead><tr><th>Unit</th><th>Position</th><th>Ward</th></tr></thead>
-                  <tbody>
-                    {detail.assignments.map((a) => (
-                      <tr key={a.ambulance_id}><td className="mono">{a.ambulance_id}</td><td>{a.name ?? a.candidate_id}</td><td className="mono">{a.ward_code ?? '–'}</td></tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="history-assignments-section">
+                <div className="history-section-header">
+                  <div className="history-section-title">
+                    <h3>Ambulance staging positions</h3>
+                    <span className="history-units-pill">{detail.assignments.length} units</span>
+                  </div>
+                </div>
+                <div className="history-table-wrap">
+                  <table className="history-table">
+                    <caption className="sr-only">Positions in this run</caption>
+                    <thead>
+                      <tr>
+                        <th style={{ width: '28%' }}>Unit</th>
+                        <th style={{ width: '48%' }}>Staging Position</th>
+                        <th style={{ width: '24%', textAlign: 'right' }}>Ward</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detail.assignments.map((a) => (
+                        <tr key={a.ambulance_id}>
+                          <td>
+                            <div className="history-unit-cell">
+                              <span className="history-unit-badge">{a.ambulance_id}</span>
+                              {a.type && (
+                                <span className={`history-type-chip ${a.type === 'BLS' ? 'is-bls' : 'is-als'}`}>
+                                  {a.type}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td>
+                            <div className="history-pos-cell">
+                              <span className="history-pos-name">{a.name ?? `Spot #${a.candidate_id}`}</span>
+                              {a.name && (
+                                <span className="history-pos-id">Candidate #{a.candidate_id}</span>
+                              )}
+                            </div>
+                          </td>
+                          <td style={{ textAlign: 'right' }}>
+                            <span className="history-ward-chip">{a.ward_code ? `Ward ${a.ward_code}` : '–'}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
             {open.status === 'succeeded' && (
