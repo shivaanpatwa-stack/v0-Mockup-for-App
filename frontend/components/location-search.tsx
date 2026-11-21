@@ -22,6 +22,17 @@ type Status = 'idle' | 'loading' | 'results' | 'empty' | 'error' | 'rate_limited
  * Place autocomplete (ARIA combobox pattern). Results are rendered as React text only: names come
  * from OpenStreetMap and must never be inserted as HTML.
  */
+/** The geocoder often returns the same place several times (one per map feature); show each name and area once. */
+function dedupe<T extends { name: string; label?: string }>(places: T[]): T[] {
+  const seen = new Set<string>()
+  return places.filter((p) => {
+    const key = `${p.name}|${p.label ?? ''}`.toLowerCase()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 export default function LocationSearch({ onSelect }: { onSelect: (place: Place) => void }) {
   const listId = useId()
   const optionId = (i: number) => `${listId}-option-${i}`
@@ -46,7 +57,7 @@ export default function LocationSearch({ onSelect }: { onSelect: (place: Place) 
     }
     const cached = resultCache.get(q.toLowerCase())
     if (cached) {
-      setPlaces(cached)
+      setPlaces(dedupe(cached))
       setStatus(cached.length ? 'results' : 'empty')
       setActive(-1)
       return
@@ -62,7 +73,7 @@ export default function LocationSearch({ onSelect }: { onSelect: (place: Place) 
           return
         }
         remember(q.toLowerCase(), result.places)
-        setPlaces(result.places)
+        setPlaces(dedupe(result.places))
         setStatus(result.places.length ? 'results' : 'empty')
         setActive(-1)
       } catch (err) {

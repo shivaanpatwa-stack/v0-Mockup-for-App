@@ -64,7 +64,7 @@ export default function Landing() {
   const k = impact.kpis
   return (
     <div className="landing theme-light">
-      <header className="landing-nav">
+      <header className="landing-nav on-dark">
         <Wordmark href="/" />
         <nav className="links" aria-label="Page">
           <a href="#problem">Problem</a>
@@ -102,9 +102,7 @@ export default function Landing() {
                 <span className="src">(Jana et al., Scientific Reports, 2023, 16,197 emergency trips)</span>. The National Health Mission
                 benchmark the same study cites is 20 minutes for urban areas.
               </p>
-              <p>
-                In Mumbai specifically, the call-to-arrival time is <span className="gap-marker">[STAT NEEDED: average 108 ambulance response time in Mumbai, call to arrival, with year and source]</span>.
-              </p>
+              {/* TODO: add Mumbai's own 108 call-to-arrival average here once there's a citable source (year + source). */}
               <p>
                 Most ambulances wait at a hospital or depot between calls. Demand doesn&apos;t: it moves across the city through the day. Where a
                 unit waits decides most of how long the next patient waits.

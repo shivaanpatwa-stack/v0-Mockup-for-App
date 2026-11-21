@@ -207,7 +207,7 @@ export function RecalcControl() {
           <span className="status status-warning"><span className="dot" aria-hidden="true" /></span>
           Inputs changed, recalculate recommended · {stale.reason}
         </div>
-      ) : (
+      ) : recalcStatus === 'result' && preview ? null : (
         <div id="recalc-status" className="recalc-status" role="status">
           {pendingApply
             ? 'Applying the new plan…'
