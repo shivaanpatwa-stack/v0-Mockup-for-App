@@ -1,14 +1,12 @@
 import Link from 'next/link'
-import { Plus } from 'lucide-react'
 import { APP_NAME } from '@/lib/config'
 
-/** Product name (placeholder in lib/config.ts) with the first-aid cross mark. */
+/** The Standby logo (public/standby.svg) and product name. */
 export default function Wordmark({ href = '/app' }: { href?: string }) {
   return (
     <Link href={href} className="wordmark" aria-label={`${APP_NAME} home`}>
-      <span className="wordmark-mark" aria-hidden="true">
-        <Plus strokeWidth={3} />
-      </span>
+      {/* eslint-disable-next-line @next/next/no-img-element -- tiny static SVG, no optimisation needed */}
+      <img src="/standby.svg" alt="" width={24} height={24} className="wordmark-logo" />
       {APP_NAME}
     </Link>
   )

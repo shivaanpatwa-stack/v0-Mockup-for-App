@@ -4,7 +4,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { CODE_COOKIE, KEY_COOKIE } from '@/lib/session'
 
 /** The landing page and the sign-in pages are public. Everything else (the app at /app) needs a session. */
-const PUBLIC_PAGES = new Set(['/', '/start', '/register'])
+const PUBLIC_PAGES = new Set(['/', '/team', '/start', '/register'])
 
 export function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname
