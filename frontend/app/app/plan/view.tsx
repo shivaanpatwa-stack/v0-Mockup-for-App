@@ -130,7 +130,7 @@ export default function StagingPlanPage() {
               units={plan?.assignments ?? []}
               ghosts={hovered?.from && (hovered.km ?? 0) > 0.05 ? [{ callSign: hovered.callSign, from: hovered.from, to: hovered.to }] : []}
               hotUnit={hover}
-              focusWard={hovered?.toWard ?? null}
+              onHoverUnit={setHover}
               layers={{ demand: true, reach: false, units: true }}
             />
           </div>

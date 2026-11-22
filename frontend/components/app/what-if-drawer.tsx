@@ -221,7 +221,7 @@ export default function WhatIfDrawer() {
         </div>
         <label className="knob" style={{ marginTop: 4 }}>
           <span className="knob-head">
-            Close a staging position <output>{knobs.closed.length || 'none'}</output>
+            Disable a staging position <output>{knobs.closed.length || 'none'}</output>
           </span>
           <select
             className="select"
@@ -229,7 +229,7 @@ export default function WhatIfDrawer() {
             onFocus={loadCandidates}
             onChange={(e) => e.target.value && set('closed', [...knobs.closed, e.target.value])}
           >
-            <option value="">{candidates === null ? 'Choose a position…' : candidates.length ? 'Choose a position…' : 'None within range'}</option>
+            <option value="">{candidates === null ? 'Disable a position…' : candidates.length ? 'Disable a position…' : 'None within range'}</option>
             {(candidates ?? [])
               .filter((c) => !knobs.closed.includes(c.candidate_id))
               .map((c) => (
@@ -240,12 +240,24 @@ export default function WhatIfDrawer() {
           </select>
         </label>
         {knobs.closed.length > 0 && (
-          <div className="ward-picker">
-            {knobs.closed.map((id) => (
-              <button key={id} type="button" className="chip" onClick={() => set('closed', knobs.closed.filter((c) => c !== id))} aria-label={`Reopen ${candidates?.find((c) => c.candidate_id === id)?.name ?? id}`}>
-                {candidates?.find((c) => c.candidate_id === id)?.name ?? id} <X size={12} aria-hidden="true" />
-              </button>
-            ))}
+          <div className="disabled-positions-list">
+            {knobs.closed.map((id) => {
+              const name = candidates?.find((c) => c.candidate_id === id)?.name ?? id
+              return (
+                <div key={id} className="disabled-position-chip">
+                  <span className="disabled-position-label">{name}</span>
+                  <button
+                    type="button"
+                    className="disabled-position-remove"
+                    onClick={() => set('closed', knobs.closed.filter((c) => c !== id))}
+                    aria-label={`Re-enable ${name}`}
+                    title={`Re-enable ${name}`}
+                  >
+                    <X size={13} aria-hidden="true" />
+                  </button>
+                </div>
+              )
+            })}
           </div>
         )}
       </div>

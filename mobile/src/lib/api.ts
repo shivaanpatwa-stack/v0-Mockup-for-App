@@ -66,7 +66,7 @@ export const HOSPITAL_CODE_HEADER = 'X-Hospital-Code'
 export const HOSPITAL_CODE_NOT_FOUND = 'Hospital code not found'
 export const NETWORK_MESSAGE = "Can't reach the server."
 export const RATE_LIMIT_MESSAGE = 'Too many attempts. Try again in a few minutes.'
-const TIMEOUT_MS = 8_000
+const TIMEOUT_MS = 25_000 // 25s accommodates Render free-tier cold starts
 const DEFAULT_RETRY_AFTER_S = 5 * 60 // when a 429 carries no usable Retry-After
 const MAX_RETRY_AFTER_S = 60 * 60
 

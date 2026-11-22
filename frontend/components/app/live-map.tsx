@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { GeoJSON, MapContainer, Marker, Pane, Polyline, TileLayer, Tooltip, ZoomControl, useMap } from 'react-leaflet'
-import { divIcon, latLngBounds } from 'leaflet'
+import { divIcon, geoJSON, latLngBounds } from 'leaflet'
 import type { FeatureCollection } from 'geojson'
 import 'leaflet/dist/leaflet.css'
 import WardRiskLayer from '@/components/ward-risk-layer'
@@ -48,9 +48,35 @@ const baseIcon = divIcon({
 })
 const ghostIcon = divIcon({ className: 'plain-icon', html: '<span class="ghost-pin" aria-hidden="true"></span>', iconSize: [0, 0] })
 
-function unitIcon(a: AmbulanceAssignment, scenario: boolean, hot: boolean) {
+function unitIcon(a: AmbulanceAssignment, scenario: boolean, hot: boolean, stack = 0) {
   const cls = ['unit-pin', a.type === 'BLS' ? 'is-bls' : '', scenario ? 'is-scenario' : '', hot ? 'is-hot' : ''].join(' ')
-  return divIcon({ className: 'plain-icon', html: `<span class="${cls}">${esc(a.ambulance_id)}</span>`, iconSize: [0, 0] })
+  // Units staged close together get their tags stacked so no call sign hides another.
+  const style = stack ? ` style="margin-top:${stack * 24}px"` : ''
+  return divIcon({ className: 'plain-icon', html: `<span class="${cls}"${style}>${esc(a.ambulance_id)}</span>`, iconSize: [0, 0] })
+}
+
+/** For each unit, how many earlier units sit within ~2 km (and so would overlap its tag). */
+function stackIndex(units: AmbulanceAssignment[]): Map<string, number> {
+  const out = new Map<string, number>()
+  units.forEach((u, i) => {
+    let n = 0
+    for (let j = 0; j < i; j++) {
+      if (Math.abs(units[j].lat - u.lat) < 0.018 && Math.abs(units[j].lng - u.lng) < 0.03) n++
+    }
+    out.set(`${u.ambulance_id}-${u.candidate_id}`, n)
+  })
+  return out
+}
+
+/** Frame the whole city once the ward outlines load, instead of centring on the hospital. */
+function FitCity({ wards }: { wards: FeatureCollection | null }) {
+  const map = useMap()
+  useEffect(() => {
+    if (!wards) return
+    const b = geoJSON(wards).getBounds()
+    if (b.isValid()) map.fitBounds(b, { padding: [16, 16], animate: false })
+  }, [wards, map])
+  return null
 }
 
 function arrowIcon(from: { lat: number; lng: number }, to: { lat: number; lng: number }) {
@@ -152,6 +178,8 @@ export default function LiveMap({
     return { ...wards, features: wards.features.filter((f) => set.has(f.properties?.ward_code)) }
   }, [wards, uncoveredWards])
 
+  const stacks = useMemo(() => stackIndex(units), [units])
+
   const fitPoints = useMemo(
     () => (mini ? [...units.map((u) => ({ lat: u.lat, lng: u.lng })), ...(hospital ? [{ lat: hospital.lat, lng: hospital.lng }] : [])] : []),
     [mini, units, hospital],
@@ -208,19 +236,28 @@ export default function LiveMap({
         </Marker>
       )}
       {layers.units &&
-        ghosts.map((g) => (
-          <Fragment key={`ghost-${g.callSign}`}>
-            <Marker position={[g.from.lat, g.from.lng]} icon={ghostIcon} interactive={false} keyboard={false} />
-            <Polyline positions={[[g.from.lat, g.from.lng], [g.to.lat, g.to.lng]]} interactive={false} pathOptions={{ color: '#9aa3a0', weight: 1.5, dashArray: '4 4' }} />
-            <Marker position={[along(g.from, g.to).lat, along(g.from, g.to).lng]} icon={arrowIcon(g.from, g.to)} interactive={false} keyboard={false} />
-          </Fragment>
-        ))}
+        ghosts.map((g) => {
+          const isAtHospital = Boolean(
+            hospital &&
+            Math.abs(g.from.lat - hospital.lat) < 0.0005 &&
+            Math.abs(g.from.lng - hospital.lng) < 0.0005
+          )
+          return (
+            <Fragment key={`ghost-${g.callSign}`}>
+              {!isAtHospital && (
+                <Marker position={[g.from.lat, g.from.lng]} icon={ghostIcon} interactive={false} keyboard={false} />
+              )}
+              <Polyline positions={[[g.from.lat, g.from.lng], [g.to.lat, g.to.lng]]} interactive={false} pathOptions={{ color: '#9aa3a0', weight: 1.5, dashArray: '4 4' }} />
+              <Marker position={[along(g.from, g.to).lat, along(g.from, g.to).lng]} icon={arrowIcon(g.from, g.to)} interactive={false} keyboard={false} />
+            </Fragment>
+          )
+        })}
       {layers.units &&
         units.map((a) => (
           <Marker
             key={`${a.ambulance_id}-${a.candidate_id}-${unitsAreScenario}`}
             position={[a.lat, a.lng]}
-            icon={unitIcon(a, unitsAreScenario, hotUnit === a.ambulance_id)}
+            icon={unitIcon(a, unitsAreScenario, hotUnit === a.ambulance_id, stacks.get(`${a.ambulance_id}-${a.candidate_id}`))}
             title={`${a.ambulance_id}, ${a.type}, ${a.name ?? a.candidate_id}`}
             zIndexOffset={hotUnit === a.ambulance_id ? 1000 : 0}
             eventHandlers={onHoverUnit ? { mouseover: () => onHoverUnit(a.ambulance_id), mouseout: () => onHoverUnit(null) } : undefined}
@@ -240,6 +277,7 @@ export default function LiveMap({
         ))}
       <AutoResize />
       <ZoomControl position={mini ? 'topright' : 'bottomright'} />
+      {!mini && <FitCity wards={wards} />}
       {!mini && <FocusWard ward={focusWard} />}
       {mini && <FitUnits points={fitPoints} hospitalCenter={hospital ? [hospital.lat, hospital.lng] : undefined} />}
     </MapContainer>

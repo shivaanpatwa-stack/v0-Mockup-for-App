@@ -1,17 +1,26 @@
 # First-run onboarding
 
-Shown once per browser the first time someone reaches the dashboard (`/app`): demo videos, then a spotlight tour of
-the real dashboard, then a completion screen. It can be replayed from the hospital menu ("Take a tour") or the command
+Shown once per hospital the first time it reaches the dashboard (`/app`): demo videos, then a spotlight tour of the
+real dashboard, then a completion screen. It can be replayed from the hospital menu ("Take a tour") or the command
 palette (Ctrl/⌘ K, "Take a tour"); a replay never changes the saved status.
+
+## Who counts as "a user"
+
+The app has no personal accounts: you sign in to a hospital with its code and dashboard key. So "seen the tour" is saved
+on the hospital, in the database (`hospitals.onboarding_status`, `onboarding_completed_at`, `onboarding_version`). That
+makes it the same on every device and browser, and each hospital has its own. Finishing and skipping are both saved.
+
+The browser also keeps a copy (`localStorage`, key `onboarding:v<version>:<hospital id>`). It only matters if the
+backend hasn't been updated yet or a save failed; a failed save is sent again on the next page load.
 
 ## Files
 
 | File | What it does |
 | --- | --- |
 | `config.ts` | All copy, the video list and the tour steps. Edit here to change the content. |
-| `store.ts` | First-run status in `localStorage` (`onboarding:v1`, value `{version, status: completed or skipped, at}`). |
-| `onboarding-provider.tsx` | State machine (videos, tour, done), auto-start, replay (`useOnboarding().startTour`). |
-| `video-modal.tsx` | Blurred overlay with the demo videos (Back / Next / Skip, "1 of N"). |
+| `store.ts` | The per-browser copy of the status (see above). |
+| `onboarding-provider.tsx` | State machine (videos, tour, done), auto-start from the database status, saving, replay (`useOnboarding().startTour`). |
+| `video-modal.tsx` | Blurred overlay with the demo videos (Skip tour / Back / Next, "1 of N"). |
 | `tour-overlay.tsx` | Spotlight, tooltip placement, scroll-into-view, skips steps whose target isn't on screen. |
 | `completion-screen.tsx` | Final screen ("Get Started"). |
 | `use-dialog-keys.ts` | Focus trap, Esc to skip, arrow keys for Back/Next. |
@@ -24,8 +33,20 @@ Styles are the `.onb-*` block at the end of `app/globals.css`. Tour targets are 
 - **Add or reorder a tour step:** add an entry to `TOUR_STEPS` and put `data-tour="<target>"` on the element.
 - **Add a video:** drop the file in `public/onboarding/` and add an entry to `VIDEO_STEPS` (`src: '/onboarding/<file>.mp4'`).
   Optional `poster` is a still image shown before it plays.
-- **Show everyone the tour again** (for example after a redesign): bump `VERSION` in `store.ts`.
-- **Reset it for yourself:** run `localStorage.removeItem('onboarding:v1')` in the browser console and reload.
+- **Show everyone the tour again** (for example after a redesign): bump `ONBOARDING_VERSION` in `config.ts`. Hospitals
+  that saw an older version are treated as new.
+- **Reset it for one hospital:** in the database, `UPDATE hospitals SET onboarding_status = NULL WHERE hospital_id = <id>;`, then
+  in that browser's console `Object.keys(localStorage).filter(k => k.startsWith('onboarding:')).forEach(k => localStorage.removeItem(k))`
+  and reload.
+
+## Backend
+
+- Migration: `backend/migrations/2026_11_17_onboarding_up.sql` (rollback: `..._down.sql`). Three nullable columns, so
+  existing hospitals keep working and are shown the tour once. Apply it before deploying the new backend:
+  `cd backend && ../venv/bin/python scripts/run_migration.py up 2026_11_17_onboarding`
+- `GET /hospital` now includes `onboarding: {status, completed_at, version}`.
+- `PATCH /hospital/onboarding` with `{status: "completed" | "skipped", version}` saves it. Needs the dashboard key
+  (admin), like the dashboard's other changes. Safe to repeat.
 
 If a video file is missing or fails to play, the modal shows "Demo video coming soon" and the flow still works.
 
@@ -47,9 +68,11 @@ more units so the plan has visible moves.
 
 | Scenario | Expected |
 | --- | --- |
-| Clear `localStorage`, open `/app` | Video modal appears once the dashboard has loaded |
-| Click through to the end and press Get Started | Overlay disappears; reload shows nothing |
-| Press Skip at any point | Overlay disappears; reload shows nothing |
-| Reload in the middle of the tour | Starts again from the first video (nothing was saved) |
+| New hospital registers, or an existing hospital opens `/app` for the first time | Video modal appears once the dashboard has loaded |
+| Click through to the end | Status saved as `completed` in the database; overlay gone after Get Started |
+| Press Skip tour at any point | Status saved as `skipped`; it doesn't appear again |
+| Same hospital signs in again, or from another browser or device | Dashboard opens normally (the database decides) |
+| A different hospital signs in on the same browser | It gets its own tour |
+| Reload in the middle of the tour | Starts again from the first video (nothing was saved yet) |
 | Hospital menu or palette: Take a tour | Runs again; saved status unchanged |
 | Narrow phone width | Bottom tab bar is highlighted instead of the top nav; steps whose target is hidden are skipped |
