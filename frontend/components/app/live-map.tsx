@@ -236,13 +236,22 @@ export default function LiveMap({
         </Marker>
       )}
       {layers.units &&
-        ghosts.map((g) => (
-          <Fragment key={`ghost-${g.callSign}`}>
-            <Marker position={[g.from.lat, g.from.lng]} icon={ghostIcon} interactive={false} keyboard={false} />
-            <Polyline positions={[[g.from.lat, g.from.lng], [g.to.lat, g.to.lng]]} interactive={false} pathOptions={{ color: '#9aa3a0', weight: 1.5, dashArray: '4 4' }} />
-            <Marker position={[along(g.from, g.to).lat, along(g.from, g.to).lng]} icon={arrowIcon(g.from, g.to)} interactive={false} keyboard={false} />
-          </Fragment>
-        ))}
+        ghosts.map((g) => {
+          const isAtHospital = Boolean(
+            hospital &&
+            Math.abs(g.from.lat - hospital.lat) < 0.0005 &&
+            Math.abs(g.from.lng - hospital.lng) < 0.0005
+          )
+          return (
+            <Fragment key={`ghost-${g.callSign}`}>
+              {!isAtHospital && (
+                <Marker position={[g.from.lat, g.from.lng]} icon={ghostIcon} interactive={false} keyboard={false} />
+              )}
+              <Polyline positions={[[g.from.lat, g.from.lng], [g.to.lat, g.to.lng]]} interactive={false} pathOptions={{ color: '#9aa3a0', weight: 1.5, dashArray: '4 4' }} />
+              <Marker position={[along(g.from, g.to).lat, along(g.from, g.to).lng]} icon={arrowIcon(g.from, g.to)} interactive={false} keyboard={false} />
+            </Fragment>
+          )
+        })}
       {layers.units &&
         units.map((a) => (
           <Marker

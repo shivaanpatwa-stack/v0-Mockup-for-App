@@ -105,12 +105,14 @@ export function KpiStrip({ kpis, coverageKnown, uncovered, max }: { kpis: Kpis |
           </button>
         </div>
       )}
-      <div className="kpi kpi-meta">
-        <span className="kpi-label">Plan for</span>
-        <span className="mono">
-          {plan ? hourLabel(plan.hour) : hourLabel(hour)} · <abbr title={DATA_LABEL}>simulated demand</abbr>
-        </span>
-      </div>
+      {plan && (
+        <div className="kpi kpi-meta">
+          <span className="kpi-label">Plan for</span>
+          <span className="mono">
+            {hourLabel(plan.hour)} · <abbr title={DATA_LABEL}>simulated demand</abbr>
+          </span>
+        </div>
+      )}
     </section>
   )
 }
@@ -147,7 +149,7 @@ function diffSummary(next: OptimizeResult, current: OptimizeResult | null) {
 export function RecalcControl() {
   const {
     plan, hospital, fleet, recalcStatus, recalcError, recalcStartedAt, preview, recalculate, applyPreview, discardPreview,
-    cancelPlan, pendingApply, stale, whatIfOpen, setWhatIfOpen, setMovesOpen, inService,
+    pendingApply, stale, whatIfOpen, setWhatIfOpen, setMovesOpen, inService,
   } = useApp()
   const running = recalcStatus === 'running'
   const noUnits = hospital !== undefined && inService.length === 0
@@ -187,21 +189,6 @@ export function RecalcControl() {
         <button type="button" className="btn" aria-pressed={whatIfOpen} onClick={() => setWhatIfOpen(!whatIfOpen)} aria-keyshortcuts="W" data-tour="what-if">
           <SlidersHorizontal aria-hidden="true" /> What if… <kbd aria-hidden="true">W</kbd>
         </button>
-        {plan && !running && recalcStatus === 'idle' && (
-          <button
-            type="button"
-            className="btn btn-ghost"
-            style={{ color: '#ef4444' }}
-            onClick={() => {
-              if (window.confirm('Cancel active staging plan? All mobile crews will be instructed to stand by.')) {
-                cancelPlan()
-              }
-            }}
-            title="Cancel active staging plan and instruct crews to stand by"
-          >
-            <XCircle aria-hidden="true" /> Cancel plan
-          </button>
-        )}
       </div>
 
       {recalcStatus === 'error' ? (
@@ -554,22 +541,51 @@ export function TimeScrubber() {
 
 export function MapLegend({ showUncovered }: { showUncovered: boolean }) {
   const { plan } = useApp()
+  const [collapsed, setCollapsed] = useState(false)
   const targetMin = plan?.max_response_minutes ?? 20
   return (
-    <aside className="map-legend" aria-label="Map legend">
-      <strong style={{ fontWeight: 500 }}>Predicted demand</strong> <span className="muted">(relative risk score, 0 to 1)</span>
-      <div className="legend-ramp" aria-hidden="true"><span /><span /><span /><span /></div>
-      <div className="legend-ends"><span>Low &lt;0.20</span><span>Very high &gt;0.70</span></div>
-      <div className="legend-rows">
-        <div className="legend-row"><span className="legend-sym reach" aria-hidden="true" /> Reachable in {targetMin} min</div>
-        {showUncovered && <div className="legend-row"><span className="legend-sym uncovered" aria-hidden="true" /> Outside the response target</div>}
-        <div className="legend-row"><span className="legend-sym unit" aria-hidden="true" /> Unit (ALS solid, BLS outline)</div>
-        <div className="legend-row"><span className="legend-sym ghost" aria-hidden="true" /> Current position, arrow to new</div>
-        <div className="legend-row"><span className="legend-sym base" aria-hidden="true" /> Hospital base</div>
+    <aside className={`map-legend${collapsed ? ' is-collapsed' : ''}`} aria-label="Map legend">
+      <div
+        className="legend-header"
+        onClick={() => setCollapsed(!collapsed)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            setCollapsed(!collapsed)
+          }
+        }}
+        aria-expanded={!collapsed}
+      >
+        <span style={{ fontWeight: 600 }}>Map Legend</span>
+        <button
+          type="button"
+          className="legend-toggle-btn"
+          aria-label={collapsed ? 'Expand legend' : 'Collapse legend'}
+          tabIndex={-1}
+        >
+          {collapsed ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
+        </button>
       </div>
-      <p className="legend-note">
-        {DATA_LABEL}. <Link href="/app/data">What is assumed</Link>
-      </p>
+      {!collapsed && (
+        <>
+          <div style={{ marginTop: 6 }}>
+            <strong style={{ fontWeight: 500 }}>Predicted demand</strong> <span className="muted">(relative risk score, 0 to 1)</span>
+          </div>
+          <div className="legend-ramp" aria-hidden="true"><span /><span /><span /><span /></div>
+          <div className="legend-ends"><span>Low &lt;0.20</span><span>Very high &gt;0.70</span></div>
+          <div className="legend-rows">
+            <div className="legend-row"><span className="legend-sym reach" aria-hidden="true" /> Reachable in {targetMin} min</div>
+            {showUncovered && <div className="legend-row"><span className="legend-sym uncovered" aria-hidden="true" /> Outside the response target</div>}
+            <div className="legend-row"><span className="legend-sym unit" aria-hidden="true" /> Unit (ALS solid, BLS outline)</div>
+            <div className="legend-row"><span className="legend-sym base" aria-hidden="true" /> Hospital base</div>
+          </div>
+          <p className="legend-note">
+            {DATA_LABEL}. <Link href="/app/data">What is assumed</Link>
+          </p>
+        </>
+      )}
     </aside>
   )
 }
