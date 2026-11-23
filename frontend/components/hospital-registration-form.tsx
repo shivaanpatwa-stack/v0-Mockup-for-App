@@ -144,10 +144,10 @@ export default function HospitalRegistrationForm({ hasSession }: { hasSession: b
       }
       // The key is only in the httpOnly session cookie from here on.
       setRegistration({ ...registration, admin_key: '' })
-      router.replace('/app')
+      window.location.assign('/app')
+      return
     } catch {
       setFinishError("Can't reach the server. Check your connection and try again.")
-    } finally {
       setFinishing(false)
     }
   }

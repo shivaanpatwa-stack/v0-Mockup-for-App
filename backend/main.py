@@ -376,10 +376,8 @@ def _require_hospital_ambulance(db: Session, hospital, call_sign: str):
 
 def _current_assignments(db: Session, hospital, ambulance_ids) -> dict:
     """ambulance_id -> its current assignment: the non-cancelled one with the highest assignment_id.
-    Only assignments that have not expired long ago (within the last hour, or future) are considered current.
     Only the hospital's own ambulances are considered, whatever ids are passed in."""
     A = models.AmbulanceAssignment
-    min_valid_to = datetime.now(PLANNING_TZ) - timedelta(hours=1)
     latest = (
         select(func.max(A.assignment_id))
         .join(models.Ambulance, models.Ambulance.ambulance_id == A.ambulance_id)
@@ -387,7 +385,6 @@ def _current_assignments(db: Session, hospital, ambulance_ids) -> dict:
             models.Ambulance.hospital_id == hospital.hospital_id,
             A.ambulance_id.in_(list(ambulance_ids)),
             A.status != models.AssignmentStatus.cancelled,
-            A.valid_to >= min_valid_to,
         )
         .group_by(A.ambulance_id)
     )
@@ -911,6 +908,7 @@ def update_ambulance_status(
         # Same status again (e.g. a double tap): no change and no duplicate event.
         if ambulance.current_status != update_.status:
             now = datetime.now(PLANNING_TZ)
+            prev_status = ambulance.current_status
             ambulance.current_status = update_.status
             ambulance.status_updated_at = now
             db.add(
@@ -918,6 +916,27 @@ def update_ambulance_status(
                     ambulance_id=ambulance.ambulance_id, status=update_.status, recorded_at=now, note=update_.note
                 )
             )
+
+            # If switching away from available, or returning to available from an off-position status
+            # (responding, at_hospital, unavailable), the unit is no longer at its staging position;
+            # reset any active in_position assignment back to en_route.
+            if (
+                prev_status != update_.status
+                and (update_.status != models.AmbulanceStatus.available or prev_status != models.AmbulanceStatus.available)
+            ):
+                A = models.AmbulanceAssignment
+                latest_assignment = db.scalar(
+                    select(A)
+                    .where(
+                        A.ambulance_id == ambulance.ambulance_id,
+                        A.status != models.AssignmentStatus.cancelled,
+                    )
+                    .order_by(A.assignment_id.desc())
+                    .limit(1)
+                )
+                if latest_assignment and latest_assignment.status == models.AssignmentStatus.in_position:
+                    latest_assignment.status = models.AssignmentStatus.en_route
+
             db.commit()
     except SQLAlchemyError as exc:
         db.rollback()

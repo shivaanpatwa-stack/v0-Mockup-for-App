@@ -1,7 +1,13 @@
 import type { UnitType } from '@/lib/api'
 
-export type Coordinate = { lat: number; lng: number }
-export type AssignedPoint = Coordinate & { label: string; type: UnitType }
+export type Coordinate = { lat: number; lng: number; name?: string }
+export type AssignedPoint = Coordinate & {
+  label: string
+  type: UnitType
+  callSign?: string
+  name?: string | null
+  wardCode?: string | null
+}
 
 export type TripMapProps = {
   hospital: Coordinate | null

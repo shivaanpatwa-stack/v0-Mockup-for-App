@@ -145,12 +145,14 @@ export default function WardRiskLayer({
   showRisk = true,
   pane,
   focusWard,
+  onClearFocusWard,
 }: {
   hour: number
   showDemand?: boolean
   showRisk?: boolean
   pane?: string
   focusWard?: string | null
+  onClearFocusWard?: () => void
 }) {
   const [zones, setZones] = useState<FeatureCollection | null>(null)
 
@@ -160,6 +162,13 @@ export default function WardRiskLayer({
   const layerRef = useRef<LeafletGeoJSON | null>(null)
   const scoresRef = useRef<RiskLookup>(scores)
   const hoveredWardRef = useRef<string | null>(null)
+  const focusWardRef = useRef<string | null | undefined>(focusWard)
+  const onClearFocusWardRef = useRef<(() => void) | undefined>(onClearFocusWard)
+  const showDemandRef = useRef<boolean>(showDemand)
+
+  focusWardRef.current = focusWard
+  onClearFocusWardRef.current = onClearFocusWard
+  showDemandRef.current = showDemand
 
   // Load GeoJSON polygons
   useEffect(() => {
@@ -250,10 +259,15 @@ export default function WardRiskLayer({
         if (hoveredWardRef.current === code) {
           hoveredWardRef.current = null
         }
-        const isFocused = code === focusWard
+        const wasFocused = Boolean(code && code === focusWardRef.current)
+        if (wasFocused) {
+          focusWardRef.current = null
+          onClearFocusWardRef.current?.()
+        }
+        const isFocused = !wasFocused && code === focusWardRef.current
         const path = e.target as Path
         // Immediately revert to normal style with zero delay
-        path.setStyle(wardStyle(feature, scoresRef.current, showDemand, isFocused))
+        path.setStyle(wardStyle(feature, scoresRef.current, showDemandRef.current, isFocused))
       },
     })
   }

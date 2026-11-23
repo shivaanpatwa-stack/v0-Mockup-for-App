@@ -2,8 +2,23 @@
 
 import numpy as np
 import pandas as pd
-# pyrefly: ignore[missing-import]
-from ortools.linear_solver import pywraplp
+try:
+    # pyrefly: ignore[missing-import]
+    from ortools.linear_solver import pywraplp
+    _HAS_ORTOOLS = True
+except (ImportError, OSError):
+    _HAS_ORTOOLS = False
+
+    class _SolverStatus:
+        OPTIMAL = 0
+        FEASIBLE = 1
+        INFEASIBLE = 2
+        ABNORMAL = 4
+
+    class _DummyPywraplp:
+        Solver = _SolverStatus
+
+    pywraplp = _DummyPywraplp
 
 EARTH_RADIUS_KM = 6371.0088
 
@@ -74,7 +89,7 @@ def _reachability(
     return (times <= max_response_minutes).fillna(False).astype(bool)
 
 
-def _solve(
+def _solve_ortools(
     n: int,
     num_ambulances: int,
     scores: np.ndarray,
@@ -88,16 +103,6 @@ def _solve(
     ward_groups: "dict[str, list[int]] | None" = None,
     max_per_ward: "int | None" = None,
 ) -> tuple[int, list[int]]:
-    """Run one CBC solve. Returns (status, chosen row indices); chosen is empty without a solution.
-
-    When ward_risks and reach_matrix are provided the objective becomes a blend of:
-      - alpha = (1 - coverage_weight): per-unit weighted score  (placement quality)
-      - beta  = coverage_weight:       geographic coverage bonus (spread incentive)
-
-    For each ward w, y[w] = 1 iff at least one chosen candidate covers that ward.
-    Both terms are normalised to [0, 1] before blending so the ratio is meaningful.
-    coverage_weight=0 degrades to the original pure-quality objective.
-    """
     solver = pywraplp.Solver.CreateSolver("CBC")
     if solver is None:
         raise RuntimeError("OR-Tools CBC solver is not available")
@@ -168,6 +173,193 @@ def _solve(
     if status not in (pywraplp.Solver.OPTIMAL, pywraplp.Solver.FEASIBLE):
         return status, []
     return status, [i for i in range(n) if x[i].solution_value() > 0.5]
+
+
+def _solve_scipy(
+    n: int,
+    num_ambulances: int,
+    scores: np.ndarray,
+    too_close: list[tuple[int, int]],
+    coverage_sets: list[np.ndarray],
+    time_limit_seconds: float,
+    *,
+    ward_risks: "np.ndarray | None" = None,
+    reach_matrix: "np.ndarray | None" = None,
+    coverage_weight: float = 0.5,
+    ward_groups: "dict[str, list[int]] | None" = None,
+    max_per_ward: "int | None" = None,
+) -> tuple[int, list[int]]:
+    """SciPy HiGHS MILP fallback for integer linear programming."""
+    import scipy.sparse as sp
+    from scipy.optimize import Bounds, LinearConstraint, milp
+
+    use_diversity = (
+        ward_risks is not None
+        and reach_matrix is not None
+        and len(ward_risks) > 0
+        and 0.0 < coverage_weight < 1.0
+    )
+
+    num_wards = len(ward_risks) if (use_diversity and ward_risks is not None) else 0
+    total_vars = n + num_wards
+
+    # Objective: SciPy minimizes c^T z, so negate coefficients to maximize
+    c = np.zeros(total_vars, dtype=float)
+    if use_diversity and ward_risks is not None:
+        score_max = float(scores.max()) if scores.max() > 0 else 1.0
+        risk_max = float(ward_risks.max()) if ward_risks.max() > 0 else 1.0
+        alpha = 1.0 - coverage_weight
+        beta = coverage_weight
+
+        for i in range(n):
+            c[i] = -alpha * (float(scores[i]) / (score_max * num_ambulances))
+        for w in range(num_wards):
+            c[n + w] = -beta * (0.6 + 0.4 * (float(ward_risks[w]) / risk_max)) / num_wards
+    else:
+        c[:n] = -scores.astype(float)
+
+    rows: list[int] = []
+    cols: list[int] = []
+    vals: list[float] = []
+    lhs: list[float] = []
+    rhs: list[float] = []
+
+    # 1. Total ambulance count: sum(x) == num_ambulances
+    r = len(lhs)
+    for i in range(n):
+        rows.append(r)
+        cols.append(i)
+        vals.append(1.0)
+    lhs.append(float(num_ambulances))
+    rhs.append(float(num_ambulances))
+
+    # 2. Minimum spacing: x_i + x_j <= 1
+    for i, j in too_close:
+        r = len(lhs)
+        rows.extend([r, r])
+        cols.extend([i, j])
+        vals.extend([1.0, 1.0])
+        lhs.append(-np.inf)
+        rhs.append(1.0)
+
+    # 3. Coverage sets: sum(x[i] for i in rows) >= 1
+    for r_indices in coverage_sets:
+        if len(r_indices) == 0:
+            continue
+        r = len(lhs)
+        for i in r_indices:
+            rows.append(r)
+            cols.append(int(i))
+            vals.append(1.0)
+        lhs.append(1.0)
+        rhs.append(np.inf)
+
+    # 4. Ward-level capacity constraint: sum(x[i] for i in indices) <= max_per_ward
+    if ward_groups and max_per_ward and max_per_ward > 0:
+        for ward_name, indices in ward_groups.items():
+            if not indices:
+                continue
+            r = len(lhs)
+            for i in indices:
+                rows.append(r)
+                cols.append(int(i))
+                vals.append(1.0)
+            lhs.append(-np.inf)
+            rhs.append(float(max_per_ward))
+
+    # 5. Diversity linking: y[w] <= sum(x[i] for candidates covering ward w)
+    if use_diversity and reach_matrix is not None:
+        for w in range(num_wards):
+            r = len(lhs)
+            covering = [i for i in range(n) if reach_matrix[i, w]]
+            if covering:
+                rows.append(r)
+                cols.append(n + w)
+                vals.append(1.0)
+                for i in covering:
+                    rows.append(r)
+                    cols.append(i)
+                    vals.append(-1.0)
+                lhs.append(-np.inf)
+                rhs.append(0.0)
+            else:
+                rows.append(r)
+                cols.append(n + w)
+                vals.append(1.0)
+                lhs.append(0.0)
+                rhs.append(0.0)
+
+    A = sp.coo_matrix((vals, (rows, cols)), shape=(len(lhs), total_vars)).tocsc()
+    constraints = LinearConstraint(A, lhs, rhs)
+    integrality = np.ones(total_vars)
+    bounds = Bounds(0, 1)
+
+    options = {}
+    if time_limit_seconds > 0:
+        options["time_limit"] = float(time_limit_seconds)
+
+    res = milp(c=c, integrality=integrality, bounds=bounds, constraints=constraints, options=options)
+
+    optimal_code = getattr(pywraplp.Solver, "OPTIMAL", 0)
+    feasible_code = getattr(pywraplp.Solver, "FEASIBLE", 1)
+    infeasible_code = getattr(pywraplp.Solver, "INFEASIBLE", 2)
+
+    if res.status == 0:
+        chosen = [i for i in range(n) if res.x[i] > 0.5]
+        return optimal_code, chosen
+    elif res.status == 1 and res.x is not None and not np.isnan(res.x[:n]).any():
+        chosen = [i for i in range(n) if res.x[i] > 0.5]
+        return feasible_code, chosen
+    else:
+        return infeasible_code, []
+
+
+def _solve(
+    n: int,
+    num_ambulances: int,
+    scores: np.ndarray,
+    too_close: list[tuple[int, int]],
+    coverage_sets: list[np.ndarray],
+    time_limit_seconds: float,
+    *,
+    ward_risks: "np.ndarray | None" = None,
+    reach_matrix: "np.ndarray | None" = None,
+    coverage_weight: float = 0.5,
+    ward_groups: "dict[str, list[int]] | None" = None,
+    max_per_ward: "int | None" = None,
+) -> tuple[int, list[int]]:
+    """Solve the optimization problem using OR-Tools CBC if available, falling back to SciPy HiGHS."""
+    if _HAS_ORTOOLS:
+        try:
+            return _solve_ortools(
+                n,
+                num_ambulances,
+                scores,
+                too_close,
+                coverage_sets,
+                time_limit_seconds,
+                ward_risks=ward_risks,
+                reach_matrix=reach_matrix,
+                coverage_weight=coverage_weight,
+                ward_groups=ward_groups,
+                max_per_ward=max_per_ward,
+            )
+        except Exception:
+            pass
+
+    return _solve_scipy(
+        n,
+        num_ambulances,
+        scores,
+        too_close,
+        coverage_sets,
+        time_limit_seconds,
+        ward_risks=ward_risks,
+        reach_matrix=reach_matrix,
+        coverage_weight=coverage_weight,
+        ward_groups=ward_groups,
+        max_per_ward=max_per_ward,
+    )
 
 
 def _greedy_placement(num_ambulances: int, scores: np.ndarray, too_close: list[tuple[int, int]]) -> list[int]:

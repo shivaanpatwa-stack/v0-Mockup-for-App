@@ -38,9 +38,9 @@ export function MapLegend() {
             </View>
             <View style={styles.row}>
               <View style={styles.markerMini}>
-                <UnitMarkerView label="124" type="ALS" />
+                <UnitMarkerView type="ALS" />
               </View>
-              <Text style={styles.desc}>Recommended Unit Staging Position</Text>
+              <Text style={styles.desc}>Recommended Unit Staging (tap for details)</Text>
             </View>
           </View>
 

@@ -305,7 +305,7 @@ export function RecalcControl() {
   )
 }
 
-const STATUS_TEXT: Record<string, string> = { planned: 'Staged (not dispatched)', en_route: 'Dispatched · On the way', in_position: 'In position' }
+const STATUS_TEXT: Record<string, string> = { planned: 'Staged', en_route: 'En route', in_position: 'In position' }
 
 function MoveRow({ m, hour, preview, onHover, hot }: { m: Move; hour: number; preview: boolean; onHover: (id: string | null) => void; hot: boolean }) {
   const { pushToast, refreshFleet, fleet } = useApp()
@@ -313,6 +313,10 @@ function MoveRow({ m, hour, preview, onHover, hot }: { m: Move; hour: number; pr
   const scores = getBundledScoresForHour(hour)
   const score = m.toWard ? scores[m.toWard] : undefined
   const unit = fleet?.find((f) => f.call_sign === m.callSign)
+
+  const fullArea = m.toWard ? WARD_NAMES[m.toWard] : undefined
+  const primaryArea = fullArea ? fullArea.split(',')[0].trim() : ''
+
   const dispatch = async () => {
     setBusy(true)
     try {
@@ -325,60 +329,83 @@ function MoveRow({ m, hour, preview, onHover, hot }: { m: Move; hour: number; pr
       setBusy(false)
     }
   }
+
+  const isPlanned = !preview && (m.status === 'planned' || m.status === null)
+
   return (
     <li className={`move${hot ? ' is-hover' : ''}`} onMouseEnter={() => onHover(m.callSign)} onMouseLeave={() => onHover(null)} onFocus={() => onHover(m.callSign)}>
-      <div className="move-top">
-        <span className="move-id">{m.callSign} <span className="muted">{m.type}</span></span>
-        {!preview && (
-          <span
-            className={`status ${
-              unit?.status === 'responding'
-                ? 'status-responding'
-                : unit?.status === 'at_hospital'
-                  ? 'status-hospital'
-                  : 'status-available'
-            }`}
-          >
-            {unit?.status === 'responding' ? (
-              <>
-                <span className="dot" aria-hidden="true" />
-                Responding to a call
-              </>
-            ) : unit?.status === 'at_hospital' ? (
-              <>
-                <span className="dot" aria-hidden="true" />
-                At hospital
-              </>
-            ) : (m.status ?? 'planned') === 'in_position' ? (
-              <>
-                <Check aria-hidden="true" />
-                In position
-              </>
-            ) : (
-              <>
-                <span className="dot" aria-hidden="true" />
-                {STATUS_TEXT[m.status ?? 'planned'] ?? m.status}
-              </>
-            )}
-          </span>
+      <div className="move-head">
+        <div className="move-unit-info">
+          <span className="move-id">{m.callSign}</span>
+          <span className="move-type">{m.type}</span>
+          {!preview && (
+            <span
+              className={`status ${
+                unit?.status === 'responding'
+                  ? 'status-responding'
+                  : unit?.status === 'at_hospital'
+                    ? 'status-hospital'
+                    : 'status-available'
+              }`}
+              title={STATUS_TEXT[m.status ?? 'planned'] ?? m.status ?? ''}
+            >
+              {unit?.status === 'responding' ? (
+                <>
+                  <span className="dot" aria-hidden="true" />
+                  Responding
+                </>
+              ) : unit?.status === 'at_hospital' ? (
+                <>
+                  <span className="dot" aria-hidden="true" />
+                  At hospital
+                </>
+              ) : unit?.status === 'unavailable' ? (
+                <>
+                  <span className="dot" aria-hidden="true" />
+                  Out of service
+                </>
+              ) : unit?.status === 'available' && (m.status ?? 'planned') === 'in_position' ? (
+                <>
+                  <Check size={11} aria-hidden="true" />
+                  In position
+                </>
+              ) : (
+                <>
+                  <span className="dot" aria-hidden="true" />
+                  {STATUS_TEXT[m.status ?? 'planned'] ?? m.status}
+                </>
+              )}
+            </span>
+          )}
+        </div>
+
+        {isPlanned && (
+          <button type="button" className="btn btn-sm btn-primary move-dispatch-btn" disabled={busy} onClick={dispatch}>
+            <Send size={11} aria-hidden="true" /> Dispatch
+          </button>
         )}
       </div>
-      <div className="move-path">
-        {m.fromLabel} <ArrowRight size={12} aria-hidden="true" style={{ verticalAlign: '-2px' }} /> <b>{m.toLabel}</b>
-        {m.km != null && <span className="mono"> · {m.km.toFixed(1)} km</span>}
+
+      <div className="move-dest-row">
+        <span className="move-dest-name" title={m.fromLabel ? `${m.fromLabel} → ${m.toLabel}` : m.toLabel}>
+          {m.toLabel}
+          {m.fromLabel && m.fromLabel !== 'Hospital base' && (
+            <span className="move-from-sub"> (from {m.fromLabel})</span>
+          )}
+        </span>
+        {m.km != null && <span className="move-dest-dist">{m.km.toFixed(1)} km</span>}
       </div>
+
       {m.toWard && (
-        <div className="move-why">
-          Ward {m.toWard}
-          {WARD_NAMES[m.toWard] ? ` (${WARD_NAMES[m.toWard]})` : ''}
-          {score !== undefined ? `: ${DEMAND_LABEL[demandLevel(score)].toLowerCase()} predicted demand at ${hourLabel(hour)}` : ''}
-        </div>
-      )}
-      {!preview && (m.status === 'planned' || m.status === null) && (
-        <div className="move-actions">
-          <button type="button" className="btn btn-sm btn-primary" style={{ gap: 4 }} disabled={busy} onClick={dispatch}>
-            <Send size={12} aria-hidden="true" /> Dispatch
-          </button>
+        <div className="move-meta-row">
+          <span className="move-ward" title={fullArea ? `Ward ${m.toWard} (${fullArea})` : `Ward ${m.toWard}`}>
+            Ward {m.toWard}{primaryArea ? ` · ${primaryArea}` : ''}
+          </span>
+          {score !== undefined && (
+            <span className={`move-demand level-${demandLevel(score)}`} title={`Demand score: ${score.toFixed(2)} at ${hourLabel(hour)}`}>
+              {DEMAND_LABEL[demandLevel(score)]} demand
+            </span>
+          )}
         </div>
       )}
     </li>

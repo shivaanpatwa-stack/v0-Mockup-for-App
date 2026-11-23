@@ -148,8 +148,19 @@ export default function MapScreen() {
   return (
     <View style={styles.screen}>
       <TripMap
-        hospital={base}
-        assigned={point ? { ...point, label: shortLabel(unit.call_sign), type: unit.type } : null}
+        hospital={base ? { ...base, name: baseName } : null}
+        assigned={
+          point
+            ? {
+                ...point,
+                label: shortLabel(unit.call_sign),
+                callSign: unit.call_sign,
+                type: unit.type,
+                name: active?.name ?? active?.candidate_id,
+                wardCode: active?.ward_code,
+              }
+            : null
+        }
         routePoints={routePoints}
         bottomInset={cardHeight + CARD_MARGIN}
         recenterToken={recenterToken}

@@ -33,6 +33,7 @@ export type LiveMapProps = {
   uncoveredWards?: string[]
   layers?: { demand: boolean; reach: boolean; units: boolean }
   focusWard?: string | null
+  onClearFocusWard?: () => void
   hotUnit?: string | null
   onHoverUnit?: (callSign: string | null) => void
   /** Small static map (run drawer): no wheel zoom, no labels pane, fits to units. */
@@ -148,6 +149,7 @@ export default function LiveMap({
   uncoveredWards = [],
   layers = { demand: true, reach: true, units: true },
   focusWard,
+  onClearFocusWard,
   hotUnit,
   onHoverUnit,
   mini = false,
@@ -205,7 +207,7 @@ export default function LiveMap({
         </Pane>
       )}
       <Pane name="ward-risk-pane" style={{ zIndex: 400 }}>
-        <WardRiskLayer hour={hour} showDemand={layers.demand} showRisk={!mini} pane="ward-risk-pane" focusWard={focusWard} />
+        <WardRiskLayer hour={hour} showDemand={layers.demand} showRisk={!mini} pane="ward-risk-pane" focusWard={focusWard} onClearFocusWard={onClearFocusWard} />
       </Pane>
       <Pane name="reach-pane" style={{ zIndex: 420, pointerEvents: 'none' }}>
         {layers.reach && reachGeo && (

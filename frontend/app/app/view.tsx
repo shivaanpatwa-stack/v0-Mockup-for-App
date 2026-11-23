@@ -15,7 +15,7 @@ const LiveMap = dynamic(() => import('@/components/app/live-map'), {
 
 export default function LiveMapPage() {
   const app = useApp()
-  const { plan, preview, scenario, whatIfOpen, comparing, hospital, fleet, hour, layers, showUncovered, focusWard } = app
+  const { plan, preview, scenario, whatIfOpen, comparing, hospital, fleet, hour, layers, showUncovered, focusWard, setFocusWard } = app
   const [hot, setHot] = useState<string | null>(null)
 
   // What the map shows: hold-to-compare > open scenario > unapplied preview > current plan.
@@ -57,6 +57,7 @@ export default function LiveMapPage() {
             uncoveredWards={showUncovered ? uncovered : []}
             layers={layers}
             focusWard={focusWard}
+            onClearFocusWard={() => setFocusWard(null)}
             hotUnit={hot}
             onHoverUnit={setHot}
           />
