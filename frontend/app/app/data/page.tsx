@@ -73,7 +73,7 @@ export default function DataPage() {
           <li><strong>Ambulances available</strong>: plans for fewer units (the first ones in service) or adds simulated BLS units.</li>
           <li><strong>Demand surge</strong>: multiplies the demand score of every ward, or of the wards you pick (1.3 = +30%). A surge in every ward raises all scores equally, so positions only change when the surge is uneven.</li>
           <li><strong>Road speed</strong>: multiplies every travel time. &quot;Monsoon gridlock&quot; at the end of the slider means trips take twice as long.</li>
-          <li><strong>Close a staging position</strong>: removes that position from the choices for this scenario only.</li>
+          <li><strong>Disable a staging position</strong>: removes that position from the choices for this scenario only.</li>
           <li><strong>Presets</strong> only set these knobs. Their values are assumptions chosen to be modest, not measurements: each preset&apos;s tooltip lists them.</li>
         </ul>
 

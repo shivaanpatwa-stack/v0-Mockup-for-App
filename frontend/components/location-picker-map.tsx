@@ -3,7 +3,7 @@
 import { useEffect, useMemo } from 'react'
 import { Circle, MapContainer, Marker, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 import { divIcon, type LeafletEvent, type Marker as LeafletMarker } from 'leaflet'
-import { MUMBAI_CENTER, TILE_ATTRIBUTION, TILE_URL } from '@/lib/map-tiles'
+import { MUMBAI_CENTER, TILE_ATTRIBUTION, TILE_URL_DARK } from '@/lib/map-tiles'
 import 'leaflet/dist/leaflet.css'
 
 export type LatLng = { lat: number; lng: number }
@@ -60,7 +60,7 @@ export default function LocationPickerMap({ position, radiusKm, viewTarget, onPi
 
   return (
     <MapContainer center={MUMBAI_CENTER} zoom={11} style={{ height: '100%', width: '100%' }}>
-      <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} subdomains="abcd" />
+      <TileLayer url={TILE_URL_DARK} attribution={TILE_ATTRIBUTION} subdomains="abcd" />
       <ClickToPlace onPick={onPick} />
       <FlyToTarget target={viewTarget} />
       {position && (

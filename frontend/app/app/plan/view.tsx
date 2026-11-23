@@ -41,11 +41,15 @@ export default function StagingPlanPage() {
       const a = plan.assignments.find((p) => p.ambulance_id === u.call_sign)
       const live = u.current_assignment
       const at = a ?? (live?.lat != null && live.lng != null ? { lat: live.lat, lng: live.lng, name: live.name, ward_code: live.ward_code, candidate_id: live.candidate_id } : null)
+      const effectiveAssignment =
+        live?.assignment_status === 'in_position' && u.status !== 'available'
+          ? 'en_route'
+          : (live?.assignment_status ?? 'planned')
       return {
         call: u.call_sign,
         type: u.type,
         status: u.status,
-        assignment: live?.assignment_status ?? 'planned',
+        assignment: effectiveAssignment,
         ward: at?.ward_code ?? null,
         position: at ? at.name ?? at.candidate_id : null,
         km: at && hospital ? haversineKm(hospital, at) : null,
@@ -81,20 +85,96 @@ export default function StagingPlanPage() {
             <ul className="moves-list table-wrap">
               {moves.map((m) => {
                 const s = m.toWard ? scores[m.toWard] : undefined
+                const fullArea = m.toWard ? WARD_NAMES[m.toWard] : undefined
+                const primaryArea = fullArea ? fullArea.split(',')[0].trim() : ''
+
                 return (
-                  <li key={m.callSign} className={`move${hover === m.callSign ? ' is-hover' : ''}`} onMouseEnter={() => setHover(m.callSign)} onMouseLeave={() => setHover(null)} tabIndex={0} onFocus={() => setHover(m.callSign)}>
-                    <div className="move-top">
-                      <span className="move-id">Move {m.callSign} <span className="muted">{m.type}</span></span>
-                      {m.status && <span className="status">{m.status === 'in_position' ? <Check aria-hidden="true" /> : <span className="dot" aria-hidden="true" />}{ASSIGN[m.status]}</span>}
+                  <li
+                    key={m.callSign}
+                    className={`move${hover === m.callSign ? ' is-hover' : ''}`}
+                    onMouseEnter={() => setHover(m.callSign)}
+                    onMouseLeave={() => setHover(null)}
+                    tabIndex={0}
+                    onFocus={() => setHover(m.callSign)}
+                  >
+                    <div className="move-head">
+                      <div className="move-unit-info">
+                        <span className="move-id">Unit {m.callSign}</span>
+                        <span className="move-type">{m.type}</span>
+                      </div>
+                      {(() => {
+                        const unit = fleet?.find((u) => u.call_sign === m.callSign)
+                        const isOffPosition = unit?.status && unit.status !== 'available'
+                        const displayStatus = isOffPosition && m.status === 'in_position' ? 'en_route' : m.status
+
+                        if (!displayStatus && !unit?.status) return null
+
+                        return (
+                          <span
+                            className={`status ${
+                              unit?.status === 'responding'
+                                ? 'status-responding'
+                                : unit?.status === 'at_hospital'
+                                  ? 'status-hospital'
+                                  : displayStatus === 'in_position'
+                                    ? 'status-available'
+                                    : ''
+                            }`}
+                          >
+                            {unit?.status === 'responding' ? (
+                              <>
+                                <span className="dot" aria-hidden="true" />
+                                Responding
+                              </>
+                            ) : unit?.status === 'at_hospital' ? (
+                              <>
+                                <span className="dot" aria-hidden="true" />
+                                At hospital
+                              </>
+                            ) : unit?.status === 'unavailable' ? (
+                              <>
+                                <span className="dot" aria-hidden="true" />
+                                Out of service
+                              </>
+                            ) : displayStatus === 'in_position' ? (
+                              <>
+                                <Check size={11} aria-hidden="true" />
+                                In position
+                              </>
+                            ) : (
+                              <>
+                                <span className="dot" aria-hidden="true" />
+                                {ASSIGN[displayStatus ?? 'en_route'] ?? displayStatus}
+                              </>
+                            )}
+                          </span>
+                        )
+                      })()}
                     </div>
-                    <div className="move-path">
-                      {m.fromLabel} <ArrowRight size={12} aria-hidden="true" style={{ verticalAlign: '-2px' }} /> <b>{m.toLabel}</b>
-                      {m.km != null && <span className="mono"> · {m.km.toFixed(1)} km straight line</span>}
+
+                    <div className="move-dest-row">
+                      <span className="move-dest-name" title={m.fromLabel ? `${m.fromLabel} → ${m.toLabel}` : m.toLabel}>
+                        {m.toLabel}
+                        {m.fromLabel && m.fromLabel !== 'Hospital base' && (
+                          <span className="move-from-sub"> (from {m.fromLabel})</span>
+                        )}
+                      </span>
+                      {m.km != null && <span className="move-dest-dist">{m.km.toFixed(1)} km</span>}
                     </div>
+
                     {m.toWard && (
-                      <div className="move-why">
-                        Why: ward {m.toWard}{WARD_NAMES[m.toWard] ? ` (${WARD_NAMES[m.toWard]})` : ''} has {s !== undefined ? DEMAND_LABEL[demandLevel(s)].toLowerCase() : 'its'} predicted demand at {hourLabel(plan.hour)}
-                        {s !== undefined ? ` (score ${s.toFixed(2)})` : ''}.
+                      <div className="move-meta-row">
+                        <span className="move-ward" title={fullArea ? `Ward ${m.toWard} (${fullArea})` : `Ward ${m.toWard}`}>
+                          Ward {m.toWard}{primaryArea ? ` · ${primaryArea}` : ''}
+                        </span>
+                        {s !== undefined && (
+                          <span
+                            className={`move-demand level-${demandLevel(s)}`}
+                            title={`Demand score: ${s.toFixed(2)} at ${hourLabel(plan.hour)}`}
+                          >
+                            {DEMAND_LABEL[demandLevel(s)]} demand (score {s.toFixed(2)})
+                          </span>
+                        )}
                       </div>
                     )}
                   </li>
@@ -130,7 +210,7 @@ export default function StagingPlanPage() {
               units={plan?.assignments ?? []}
               ghosts={hovered?.from && (hovered.km ?? 0) > 0.05 ? [{ callSign: hovered.callSign, from: hovered.from, to: hovered.to }] : []}
               hotUnit={hover}
-              focusWard={hovered?.toWard ?? null}
+              onHoverUnit={setHover}
               layers={{ demand: true, reach: false, units: true }}
             />
           </div>

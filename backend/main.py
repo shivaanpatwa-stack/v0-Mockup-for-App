@@ -376,10 +376,8 @@ def _require_hospital_ambulance(db: Session, hospital, call_sign: str):
 
 def _current_assignments(db: Session, hospital, ambulance_ids) -> dict:
     """ambulance_id -> its current assignment: the non-cancelled one with the highest assignment_id.
-    Only assignments that have not expired long ago (within the last hour, or future) are considered current.
     Only the hospital's own ambulances are considered, whatever ids are passed in."""
     A = models.AmbulanceAssignment
-    min_valid_to = datetime.now(PLANNING_TZ) - timedelta(hours=1)
     latest = (
         select(func.max(A.assignment_id))
         .join(models.Ambulance, models.Ambulance.ambulance_id == A.ambulance_id)
@@ -387,7 +385,6 @@ def _current_assignments(db: Session, hospital, ambulance_ids) -> dict:
             models.Ambulance.hospital_id == hospital.hospital_id,
             A.ambulance_id.in_(list(ambulance_ids)),
             A.status != models.AssignmentStatus.cancelled,
-            A.valid_to >= min_valid_to,
         )
         .group_by(A.ambulance_id)
     )
@@ -420,6 +417,15 @@ def _hospital_payload(hospital, fleet) -> dict:
         "ambulances": [
             {"id": a.call_sign, "type": a.type.value, "status": a.current_status.value} for a in fleet
         ],
+        "onboarding": _onboarding_payload(hospital),
+    }
+
+
+def _onboarding_payload(hospital) -> dict:
+    return {
+        "status": hospital.onboarding_status,
+        "completed_at": hospital.onboarding_completed_at,
+        "version": hospital.onboarding_version,
     }
 
 
@@ -702,6 +708,12 @@ class HospitalUpdate(BaseModel):
     operating_radius_km: Optional[float] = Field(default=None, gt=0, le=50)
 
 
+class OnboardingUpdate(BaseModel):
+    # Finishing and skipping the first-run tour are both saved, so neither shows it again.
+    status: Literal["completed", "skipped"]
+    version: int = Field(ge=1, le=1000)
+
+
 class HospitalRegistration(BaseModel):
     hospital_name: str = Field(min_length=2, max_length=100)
     # SEC-01: only inside Greater Mumbai (422 otherwise).
@@ -788,6 +800,21 @@ def update_hospital(changes: HospitalUpdate, hospital=Depends(require_admin), db
         db.rollback()
         raise _db_unavailable(exc)
     return _hospital_payload(hospital, fleet)
+
+
+@app.patch("/hospital/onboarding")
+def update_onboarding(update_in: OnboardingUpdate, hospital=Depends(require_admin), db: Session = Depends(get_db)):
+    """Record that this hospital's dashboard users finished or skipped the first-run tour. Admin level: the
+    tour is shown on the web dashboard, which signs in with the admin key. Safe to repeat."""
+    hospital.onboarding_status = update_in.status
+    hospital.onboarding_version = update_in.version
+    hospital.onboarding_completed_at = datetime.now(timezone.utc)
+    try:
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise _db_unavailable(exc)
+    return _onboarding_payload(hospital)
 
 
 @app.post("/hospital/ambulances", status_code=201)
@@ -881,6 +908,7 @@ def update_ambulance_status(
         # Same status again (e.g. a double tap): no change and no duplicate event.
         if ambulance.current_status != update_.status:
             now = datetime.now(PLANNING_TZ)
+            prev_status = ambulance.current_status
             ambulance.current_status = update_.status
             ambulance.status_updated_at = now
             db.add(
@@ -888,6 +916,27 @@ def update_ambulance_status(
                     ambulance_id=ambulance.ambulance_id, status=update_.status, recorded_at=now, note=update_.note
                 )
             )
+
+            # If switching away from available, or returning to available from an off-position status
+            # (responding, at_hospital, unavailable), the unit is no longer at its staging position;
+            # reset any active in_position assignment back to en_route.
+            if (
+                prev_status != update_.status
+                and (update_.status != models.AmbulanceStatus.available or prev_status != models.AmbulanceStatus.available)
+            ):
+                A = models.AmbulanceAssignment
+                latest_assignment = db.scalar(
+                    select(A)
+                    .where(
+                        A.ambulance_id == ambulance.ambulance_id,
+                        A.status != models.AssignmentStatus.cancelled,
+                    )
+                    .order_by(A.assignment_id.desc())
+                    .limit(1)
+                )
+                if latest_assignment and latest_assignment.status == models.AssignmentStatus.in_position:
+                    latest_assignment.status = models.AssignmentStatus.en_route
+
             db.commit()
     except SQLAlchemyError as exc:
         db.rollback()

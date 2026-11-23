@@ -1,15 +1,17 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   ArrowDown,
   ArrowRight,
   ArrowUp,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Loader2,
   Pause,
   Play,
@@ -103,12 +105,14 @@ export function KpiStrip({ kpis, coverageKnown, uncovered, max }: { kpis: Kpis |
           </button>
         </div>
       )}
-      <div className="kpi kpi-meta">
-        <span className="kpi-label">Plan for</span>
-        <span className="mono">
-          {plan ? hourLabel(plan.hour) : hourLabel(hour)} · <abbr title={DATA_LABEL}>simulated demand</abbr>
-        </span>
-      </div>
+      {plan && (
+        <div className="kpi kpi-meta">
+          <span className="kpi-label">Plan for</span>
+          <span className="mono">
+            {hourLabel(plan.hour)} · <abbr title={DATA_LABEL}>simulated demand</abbr>
+          </span>
+        </div>
+      )}
     </section>
   )
 }
@@ -144,11 +148,28 @@ function diffSummary(next: OptimizeResult, current: OptimizeResult | null) {
 /** 3.6 A: Recalculate staging, with idle, stale, running, result, applied (toast) and error states. */
 export function RecalcControl() {
   const {
-    plan, hospital, recalcStatus, recalcError, recalcStartedAt, preview, recalculate, applyPreview, discardPreview,
-    cancelPlan, pendingApply, stale, whatIfOpen, setWhatIfOpen, setMovesOpen, inService,
+    plan, hospital, fleet, recalcStatus, recalcError, recalcStartedAt, preview, recalculate, applyPreview, discardPreview,
+    pendingApply, stale, whatIfOpen, setWhatIfOpen, setMovesOpen, inService,
   } = useApp()
   const running = recalcStatus === 'running'
   const noUnits = hospital !== undefined && inService.length === 0
+  const [reviewOpen, setReviewOpen] = useState(false)
+
+  // Reset review open when preview changes or is cleared
+  useEffect(() => {
+    setReviewOpen(false)
+  }, [preview])
+
+  const previewMoves = useMemo(() => {
+    if (!preview) return []
+    const result = preview.result as OptimizeResult
+    if (!result?.assignments) return []
+    return movesFor(result.assignments, fleet, hospital, plan?.assignments)
+  }, [preview, fleet, hospital, plan])
+
+  const movingCount = useMemo(() => {
+    return previewMoves.filter((m) => m.fromLabel !== m.toLabel).length
+  }, [previewMoves])
   return (
     <div className="map-toolbar">
       <div className="map-toolbar-row">
@@ -168,21 +189,6 @@ export function RecalcControl() {
         <button type="button" className="btn" aria-pressed={whatIfOpen} onClick={() => setWhatIfOpen(!whatIfOpen)} aria-keyshortcuts="W" data-tour="what-if">
           <SlidersHorizontal aria-hidden="true" /> What if… <kbd aria-hidden="true">W</kbd>
         </button>
-        {plan && !running && recalcStatus === 'idle' && (
-          <button
-            type="button"
-            className="btn btn-ghost"
-            style={{ color: '#ef4444' }}
-            onClick={() => {
-              if (window.confirm('Cancel active staging plan? All mobile crews will be instructed to stand by.')) {
-                cancelPlan()
-              }
-            }}
-            title="Cancel active staging plan and instruct crews to stand by"
-          >
-            <XCircle aria-hidden="true" /> Cancel plan
-          </button>
-        )}
       </div>
 
       {recalcStatus === 'error' ? (
@@ -207,7 +213,7 @@ export function RecalcControl() {
           <span className="status status-warning"><span className="dot" aria-hidden="true" /></span>
           Inputs changed, recalculate recommended · {stale.reason}
         </div>
-      ) : (
+      ) : recalcStatus === 'result' && preview ? null : (
         <div id="recalc-status" className="recalc-status" role="status">
           {pendingApply
             ? 'Applying the new plan…'
@@ -235,20 +241,61 @@ export function RecalcControl() {
               {preview.result.assumptions.map((a) => <li key={a}>{a}</li>)}
             </ul>
           )}
+          {reviewOpen && (
+            <div className="preview-moves-accordion">
+              <div className="preview-moves-header">
+                <span className="muted" style={{ fontSize: 12 }}>
+                  Proposed movements ({movingCount} moving of {previewMoves.length} total)
+                </span>
+              </div>
+              <ul className="preview-moves-list">
+                {previewMoves.map((m) => {
+                  const isMoving = m.fromLabel !== m.toLabel
+                  return (
+                    <li key={m.callSign} className={`preview-move-item${isMoving ? ' is-moving' : ' is-stationary'}`}>
+                      <div className="preview-move-top">
+                        <div className="preview-unit-badge">
+                          <span className="preview-callsign">{m.callSign}</span>
+                          <span className={`preview-type-chip ${m.type === 'BLS' ? 'is-bls' : 'is-als'}`}>{m.type}</span>
+                        </div>
+                        <span className={`preview-movement-tag ${isMoving ? 'is-moving' : 'is-stationary'}`}>
+                          {isMoving ? 'Moving' : 'Stays in place'}
+                        </span>
+                      </div>
+                      <div className="preview-move-route">
+                        <span className="preview-from" title={m.fromLabel}>{m.fromLabel}</span>
+                        <ArrowRight size={12} className="preview-arrow" aria-hidden="true" />
+                        <span className="preview-to" title={m.toLabel}>{m.toLabel}</span>
+                        {m.km != null && isMoving && (
+                          <span className="preview-km"> · {m.km.toFixed(1)} km</span>
+                        )}
+                      </div>
+                      {m.toWard && (
+                        <div className="preview-ward-row">
+                          <span className="preview-ward-pill">Ward {m.toWard}</span>
+                          {WARD_NAMES[m.toWard] && (
+                            <span className="preview-ward-name">({WARD_NAMES[m.toWard]})</span>
+                          )}
+                        </div>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          )}
           <div className="result-actions">
             <button type="button" className="btn btn-primary" onClick={applyPreview}>
               <Check aria-hidden="true" /> Apply plan
             </button>
             <button
               type="button"
-              className="btn"
-              onClick={() => {
-                setMovesOpen(true)
-                const el = document.getElementById('moves-title')
-                el?.scrollIntoView({ behavior: 'smooth' })
-              }}
+              className={`btn${reviewOpen ? ' btn-active' : ''}`}
+              onClick={() => setReviewOpen((prev) => !prev)}
+              aria-expanded={reviewOpen}
             >
-              Review moves
+              {reviewOpen ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
+              {reviewOpen ? 'Hide moves' : 'Review moves'}
             </button>
             <button type="button" className="btn btn-ghost" onClick={discardPreview}>Discard</button>
           </div>
@@ -258,7 +305,7 @@ export function RecalcControl() {
   )
 }
 
-const STATUS_TEXT: Record<string, string> = { planned: 'Staged (not dispatched)', en_route: 'Dispatched · On the way', in_position: 'In position' }
+const STATUS_TEXT: Record<string, string> = { planned: 'Staged', en_route: 'En route', in_position: 'In position' }
 
 function MoveRow({ m, hour, preview, onHover, hot }: { m: Move; hour: number; preview: boolean; onHover: (id: string | null) => void; hot: boolean }) {
   const { pushToast, refreshFleet, fleet } = useApp()
@@ -266,6 +313,10 @@ function MoveRow({ m, hour, preview, onHover, hot }: { m: Move; hour: number; pr
   const scores = getBundledScoresForHour(hour)
   const score = m.toWard ? scores[m.toWard] : undefined
   const unit = fleet?.find((f) => f.call_sign === m.callSign)
+
+  const fullArea = m.toWard ? WARD_NAMES[m.toWard] : undefined
+  const primaryArea = fullArea ? fullArea.split(',')[0].trim() : ''
+
   const dispatch = async () => {
     setBusy(true)
     try {
@@ -278,60 +329,83 @@ function MoveRow({ m, hour, preview, onHover, hot }: { m: Move; hour: number; pr
       setBusy(false)
     }
   }
+
+  const isPlanned = !preview && (m.status === 'planned' || m.status === null)
+
   return (
     <li className={`move${hot ? ' is-hover' : ''}`} onMouseEnter={() => onHover(m.callSign)} onMouseLeave={() => onHover(null)} onFocus={() => onHover(m.callSign)}>
-      <div className="move-top">
-        <span className="move-id">{m.callSign} <span className="muted">{m.type}</span></span>
-        {!preview && (
-          <span
-            className={`status ${
-              unit?.status === 'responding'
-                ? 'status-responding'
-                : unit?.status === 'at_hospital'
-                  ? 'status-hospital'
-                  : 'status-available'
-            }`}
-          >
-            {unit?.status === 'responding' ? (
-              <>
-                <span className="dot" aria-hidden="true" />
-                Responding to a call
-              </>
-            ) : unit?.status === 'at_hospital' ? (
-              <>
-                <span className="dot" aria-hidden="true" />
-                At hospital
-              </>
-            ) : (m.status ?? 'planned') === 'in_position' ? (
-              <>
-                <Check aria-hidden="true" />
-                In position
-              </>
-            ) : (
-              <>
-                <span className="dot" aria-hidden="true" />
-                {STATUS_TEXT[m.status ?? 'planned'] ?? m.status}
-              </>
-            )}
-          </span>
+      <div className="move-head">
+        <div className="move-unit-info">
+          <span className="move-id">{m.callSign}</span>
+          <span className="move-type">{m.type}</span>
+          {!preview && (
+            <span
+              className={`status ${
+                unit?.status === 'responding'
+                  ? 'status-responding'
+                  : unit?.status === 'at_hospital'
+                    ? 'status-hospital'
+                    : 'status-available'
+              }`}
+              title={STATUS_TEXT[m.status ?? 'planned'] ?? m.status ?? ''}
+            >
+              {unit?.status === 'responding' ? (
+                <>
+                  <span className="dot" aria-hidden="true" />
+                  Responding
+                </>
+              ) : unit?.status === 'at_hospital' ? (
+                <>
+                  <span className="dot" aria-hidden="true" />
+                  At hospital
+                </>
+              ) : unit?.status === 'unavailable' ? (
+                <>
+                  <span className="dot" aria-hidden="true" />
+                  Out of service
+                </>
+              ) : unit?.status === 'available' && (m.status ?? 'planned') === 'in_position' ? (
+                <>
+                  <Check size={11} aria-hidden="true" />
+                  In position
+                </>
+              ) : (
+                <>
+                  <span className="dot" aria-hidden="true" />
+                  {STATUS_TEXT[m.status ?? 'planned'] ?? m.status}
+                </>
+              )}
+            </span>
+          )}
+        </div>
+
+        {isPlanned && (
+          <button type="button" className="btn btn-sm btn-primary move-dispatch-btn" disabled={busy} onClick={dispatch}>
+            <Send size={11} aria-hidden="true" /> Dispatch
+          </button>
         )}
       </div>
-      <div className="move-path">
-        {m.fromLabel} <ArrowRight size={12} aria-hidden="true" style={{ verticalAlign: '-2px' }} /> <b>{m.toLabel}</b>
-        {m.km != null && <span className="mono"> · {m.km.toFixed(1)} km</span>}
+
+      <div className="move-dest-row">
+        <span className="move-dest-name" title={m.fromLabel ? `${m.fromLabel} → ${m.toLabel}` : m.toLabel}>
+          {m.toLabel}
+          {m.fromLabel && m.fromLabel !== 'Hospital base' && (
+            <span className="move-from-sub"> (from {m.fromLabel})</span>
+          )}
+        </span>
+        {m.km != null && <span className="move-dest-dist">{m.km.toFixed(1)} km</span>}
       </div>
+
       {m.toWard && (
-        <div className="move-why">
-          Ward {m.toWard}
-          {WARD_NAMES[m.toWard] ? ` (${WARD_NAMES[m.toWard]})` : ''}
-          {score !== undefined ? `: ${DEMAND_LABEL[demandLevel(score)].toLowerCase()} predicted demand at ${hourLabel(hour)}` : ''}
-        </div>
-      )}
-      {!preview && (m.status === 'planned' || m.status === null) && (
-        <div className="move-actions">
-          <button type="button" className="btn btn-sm btn-primary" style={{ gap: 4 }} disabled={busy} onClick={dispatch}>
-            <Send size={12} aria-hidden="true" /> Dispatch
-          </button>
+        <div className="move-meta-row">
+          <span className="move-ward" title={fullArea ? `Ward ${m.toWard} (${fullArea})` : `Ward ${m.toWard}`}>
+            Ward {m.toWard}{primaryArea ? ` · ${primaryArea}` : ''}
+          </span>
+          {score !== undefined && (
+            <span className={`move-demand level-${demandLevel(score)}`} title={`Demand score: ${score.toFixed(2)} at ${hourLabel(hour)}`}>
+              {DEMAND_LABEL[demandLevel(score)]} demand
+            </span>
+          )}
         </div>
       )}
     </li>
@@ -494,22 +568,51 @@ export function TimeScrubber() {
 
 export function MapLegend({ showUncovered }: { showUncovered: boolean }) {
   const { plan } = useApp()
+  const [collapsed, setCollapsed] = useState(false)
   const targetMin = plan?.max_response_minutes ?? 20
   return (
-    <aside className="map-legend" aria-label="Map legend">
-      <strong style={{ fontWeight: 500 }}>Predicted demand</strong> <span className="muted">(relative risk score, 0 to 1)</span>
-      <div className="legend-ramp" aria-hidden="true"><span /><span /><span /><span /></div>
-      <div className="legend-ends"><span>Low &lt;0.20</span><span>Very high &gt;0.70</span></div>
-      <div className="legend-rows">
-        <div className="legend-row"><span className="legend-sym reach" aria-hidden="true" /> Reachable in {targetMin} min</div>
-        {showUncovered && <div className="legend-row"><span className="legend-sym uncovered" aria-hidden="true" /> Outside the response target</div>}
-        <div className="legend-row"><span className="legend-sym unit" aria-hidden="true" /> Unit (ALS solid, BLS outline)</div>
-        <div className="legend-row"><span className="legend-sym ghost" aria-hidden="true" /> Current position, arrow to new</div>
-        <div className="legend-row"><span className="legend-sym base" aria-hidden="true" /> Hospital base</div>
+    <aside className={`map-legend${collapsed ? ' is-collapsed' : ''}`} aria-label="Map legend">
+      <div
+        className="legend-header"
+        onClick={() => setCollapsed(!collapsed)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            setCollapsed(!collapsed)
+          }
+        }}
+        aria-expanded={!collapsed}
+      >
+        <span style={{ fontWeight: 600 }}>Map Legend</span>
+        <button
+          type="button"
+          className="legend-toggle-btn"
+          aria-label={collapsed ? 'Expand legend' : 'Collapse legend'}
+          tabIndex={-1}
+        >
+          {collapsed ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
+        </button>
       </div>
-      <p className="legend-note">
-        {DATA_LABEL}. <Link href="/app/data">What is assumed</Link>
-      </p>
+      {!collapsed && (
+        <>
+          <div style={{ marginTop: 6 }}>
+            <strong style={{ fontWeight: 500 }}>Predicted demand</strong> <span className="muted">(relative risk score, 0 to 1)</span>
+          </div>
+          <div className="legend-ramp" aria-hidden="true"><span /><span /><span /><span /></div>
+          <div className="legend-ends"><span>Low &lt;0.20</span><span>Very high &gt;0.70</span></div>
+          <div className="legend-rows">
+            <div className="legend-row"><span className="legend-sym reach" aria-hidden="true" /> Reachable in {targetMin} min</div>
+            {showUncovered && <div className="legend-row"><span className="legend-sym uncovered" aria-hidden="true" /> Outside the response target</div>}
+            <div className="legend-row"><span className="legend-sym unit" aria-hidden="true" /> Unit (ALS solid, BLS outline)</div>
+            <div className="legend-row"><span className="legend-sym base" aria-hidden="true" /> Hospital base</div>
+          </div>
+          <p className="legend-note">
+            {DATA_LABEL}. <Link href="/app/data">What is assumed</Link>
+          </p>
+        </>
+      )}
     </aside>
   )
 }

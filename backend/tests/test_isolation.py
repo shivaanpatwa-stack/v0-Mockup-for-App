@@ -39,6 +39,7 @@ DRIVER_ENDPOINTS = [
 ]
 ADMIN_ENDPOINTS = [
     ("PATCH", "/hospital", {"name": "Renamed"}),
+    ("PATCH", "/hospital/onboarding", {"status": "completed", "version": 1}),
     ("POST", "/hospital/ambulances", {"id": "NEW1", "type": "ALS"}),
     ("GET", "/optimize?hour=21", None),
     ("POST", "/simulate", {"hour": 21}),

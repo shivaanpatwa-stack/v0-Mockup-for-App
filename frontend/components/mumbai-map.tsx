@@ -496,7 +496,7 @@ export default function MumbaiMap({
           displayedMarkers.map((a, idx) => {
             const place = a.name ?? a.candidate_id
             const fleetUnit = fleet?.find((f) => f.call_sign === a.ambulance_id)
-            const isDeployed = fleetUnit?.current_assignment?.assignment_status === 'in_position'
+            const isDeployed = fleetUnit?.status === 'available' && fleetUnit?.current_assignment?.assignment_status === 'in_position'
             const isSelected = selectedUnitId === a.ambulance_id
             const isHighlighted = highlightedUnitId === a.ambulance_id
             const isAtBase = viewMode === 'before'

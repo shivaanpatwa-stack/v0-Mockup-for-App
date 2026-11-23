@@ -102,7 +102,11 @@ export function buildFleetRows(
         type: amb.type,
         status: amb.status,
         assignmentStatus:
-          current && (!planned || planned.candidate_id === current.candidate_id) ? current.assignment_status : null,
+          current && (!planned || planned.candidate_id === current.candidate_id)
+            ? current.assignment_status === 'in_position' && amb.status !== 'available'
+              ? 'en_route'
+              : current.assignment_status
+            : null,
         lat,
         lng,
       }

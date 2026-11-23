@@ -404,11 +404,18 @@ export function movesFor(
 ): Move[] {
   return assignments.map((a) => {
     const prev = previous?.find((p) => p.ambulance_id === a.ambulance_id)
-    const live = fleet?.find((f) => f.call_sign === a.ambulance_id)?.current_assignment
+    const unit = fleet?.find((f) => f.call_sign === a.ambulance_id)
+    const live = unit?.current_assignment
+    // If the unit is not available (responding, at hospital, unavailable), it cannot be in_position.
+    const effectiveAssignmentStatus =
+      live?.assignment_status === 'in_position' && unit?.status && unit.status !== 'available'
+        ? 'en_route'
+        : (live?.assignment_status ?? null)
+
     // A live assignment to this same position that isn't reached yet means the unit still starts
     // from the hospital; one already in position (or elsewhere) is where it starts from.
     const sameSpot = live?.candidate_id === a.candidate_id
-    const liveIsStart = live && live.lat != null && live.lng != null && (!sameSpot || live.assignment_status === 'in_position')
+    const liveIsStart = live && live.lat != null && live.lng != null && (!sameSpot || effectiveAssignmentStatus === 'in_position')
     const fromPoint = prev
       ? { lat: prev.lat, lng: prev.lng }
       : liveIsStart
@@ -428,7 +435,7 @@ export function movesFor(
       toWard: a.ward_code,
       to,
       km: fromPoint ? haversineKm(fromPoint, to) : null,
-      status: live?.assignment_status ?? null,
+      status: effectiveAssignmentStatus,
     }
   })
 }

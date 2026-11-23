@@ -19,3 +19,5 @@ export const MUMBAI_CENTER: LatLngExpression = [19.076, 72.8777]
 /** Dark basemap for the app (same provider and key; labels drawn in a pane above the ward fills). */
 export const TILE_URL_DARK_NO_LABELS = cartoUrl('dark_nolabels')
 export const TILE_URL_DARK_LABELS = cartoUrl('dark_only_labels')
+/** Dark basemap with labels baked in (location picker on the dark register page). */
+export const TILE_URL_DARK = cartoUrl('dark_all')
