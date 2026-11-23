@@ -2,11 +2,9 @@
 
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { useRouter } from 'next/navigation'
 import { signIn } from '@/lib/api'
 
 export default function SignInCard() {
-  const router = useRouter()
   const [code, setCode] = useState('')
   const [key, setKey] = useState('')
   const [busy, setBusy] = useState(false)
@@ -21,14 +19,14 @@ export default function SignInCard() {
       const result = await signIn(code.trim(), key.trim())
       if (result.ok) {
         setKey('')
-        router.replace('/app')
+        window.location.assign('/app')
         return
       }
       // Never say which part was wrong.
       setError(result.status === 429 ? 'Too many attempts. Try again in a few minutes.' : 'Invalid code or key')
+      setBusy(false)
     } catch {
       setError("Can't reach the server. Check your connection and try again.")
-    } finally {
       setBusy(false)
     }
   }

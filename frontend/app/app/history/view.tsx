@@ -246,15 +246,15 @@ export default function RunHistoryPage() {
                     <caption className="sr-only">Positions in this run</caption>
                     <thead>
                       <tr>
-                        <th style={{ width: '28%' }}>Unit</th>
-                        <th style={{ width: '48%' }}>Staging Position</th>
-                        <th style={{ width: '24%', textAlign: 'right' }}>Ward</th>
+                        <th style={{ width: '36%', whiteSpace: 'nowrap' }}>Unit</th>
+                        <th style={{ width: '42%' }}>Staging Position</th>
+                        <th style={{ width: '22%', textAlign: 'right', whiteSpace: 'nowrap' }}>Ward</th>
                       </tr>
                     </thead>
                     <tbody>
                       {detail.assignments.map((a) => (
                         <tr key={a.ambulance_id}>
-                          <td>
+                          <td style={{ whiteSpace: 'nowrap' }}>
                             <div className="history-unit-cell">
                               <span className="history-unit-badge">{a.ambulance_id}</span>
                               {a.type && (

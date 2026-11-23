@@ -35,6 +35,9 @@ build/
 # Python virtual environment
 # ========================
 venv/
+.venv/
+env/
+sa/
 __pycache__/
 *.py[cod]
 *.pyo

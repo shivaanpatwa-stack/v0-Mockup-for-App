@@ -11,7 +11,7 @@ export function TripMap({ hospital, assigned }: TripMapProps) {
       <Text style={styles.note}>The map isn't available in the web preview. Open the app on a phone.</Text>
       <View style={styles.row}>
         {hospital && <HospitalMarkerView />}
-        {assigned && <UnitMarkerView label={assigned.label} type={assigned.type} />}
+        {assigned && <UnitMarkerView type={assigned.type} />}
       </View>
     </View>
   )

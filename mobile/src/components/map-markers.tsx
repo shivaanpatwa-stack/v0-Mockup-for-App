@@ -1,4 +1,5 @@
-import { StyleSheet, Text, View } from 'react-native'
+import { StyleSheet, View } from 'react-native'
+import { Ambulance } from 'lucide-react-native'
 import { colors } from '@/constants'
 import type { UnitType } from '@/lib/api'
 
@@ -17,14 +18,12 @@ export function HospitalMarkerView() {
   )
 }
 
-/** The unit's staging position: ALS is solid navy, BLS is white with a navy border. */
-export function UnitMarkerView({ label, type }: { label: string; type: UnitType }) {
+/** The unit's staging position: round pin with ambulance icon. */
+export function UnitMarkerView({ type = 'ALS' }: { label?: string; type?: UnitType }) {
   const solid = type === 'ALS'
   return (
     <View style={[styles.unit, { backgroundColor: solid ? colors.primary : colors.card }]}>
-      <Text style={[styles.unitText, { color: solid ? colors.white : colors.accent }]} numberOfLines={1}>
-        {label}
-      </Text>
+      <Ambulance size={18} color={solid ? colors.white : colors.accent} />
     </View>
   )
 }
@@ -32,6 +31,13 @@ export function UnitMarkerView({ label, type }: { label: string; type: UnitType 
 const styles = StyleSheet.create({
   hospital: { width: 34, height: 34, borderRadius: 8, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   bar: { backgroundColor: colors.white, borderRadius: 1 },
-  unit: { minWidth: 40, height: 40, paddingHorizontal: 10, borderRadius: 20, borderWidth: 2, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  unitText: { fontSize: 13, fontWeight: '800' },
+  unit: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 2,
+    borderColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 })

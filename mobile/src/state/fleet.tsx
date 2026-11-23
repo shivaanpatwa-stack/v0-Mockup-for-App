@@ -477,20 +477,57 @@ export function FleetProvider({ children }: { children: ReactNode }) {
       if (!callSign) return { ok: false, error: { kind: 'http', message: 'No unit selected.' } }
       if (errorRef.current?.kind === 'network') return { ok: false, error: { kind: 'network', message: NETWORK_MESSAGE } }
 
-      const apply = (value: AmbulanceStatus) =>
-        commitFleet(fleetRef.current.map((u) => (u.call_sign === callSign ? { ...u, status: value } : u)))
-      const previous = fleetRef.current.find((u) => u.call_sign === callSign)?.status
+      const currentUnit = fleetRef.current.find((u) => u.call_sign === callSign)
+      const previous = currentUnit?.status
+      const plan = currentUnit?.current_assignment
+      const planKey = plan ? assignmentKeyOf(plan) : null
+
+      // If the unit was in_position and changes availability away from available,
+      // or switches back to available from an off-position status (responding, at_hospital, unavailable),
+      // the unit is no longer at its staging position; reset its assignment status to en_route.
+      const shouldResetStage = Boolean(
+        plan?.assignment_status === 'in_position' &&
+        (status !== 'available' || (previous && previous !== 'available')),
+      )
+
+      if (shouldResetStage && planKey) {
+        expectedStage.current = { callSign, key: planKey, status: 'en_route', until: Date.now() + 10_000 }
+        setStageLog((log) => ({ key: planKey, times: { ...(log.key === planKey ? log.times : {}), en_route: new Date() } }))
+      }
+
+      const apply = (value: AmbulanceStatus, resetStage: boolean) =>
+        commitFleet(
+          fleetRef.current.map((u) => {
+            if (u.call_sign !== callSign) return u
+            let updated = { ...u, status: value }
+            if (resetStage && updated.current_assignment?.assignment_status === 'in_position') {
+              updated = {
+                ...updated,
+                current_assignment: { ...updated.current_assignment, assignment_status: 'en_route' },
+              }
+            }
+            return updated
+          }),
+        )
 
       pendingStatus.current = { callSign, status }
-      apply(status) // update the UI immediately
+      apply(status, shouldResetStage) // update the UI immediately
       try {
-        await setUnitStatus(callSign, status)
+        if (shouldResetStage) {
+          await Promise.all([
+            setUnitStatus(callSign, status),
+            setAssignmentStage(callSign, 'en_route').catch(() => {}),
+          ])
+        } else {
+          await setUnitStatus(callSign, status)
+        }
         pendingStatus.current = null
         refresh()
         return { ok: true }
       } catch (err) {
         pendingStatus.current = null
-        if (previous) apply(previous) // roll back
+        if (shouldResetStage) expectedStage.current = null
+        if (previous) apply(previous, false) // roll back
         return { ok: false, error: describeError(err) }
       }
     },
